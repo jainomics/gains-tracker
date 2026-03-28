@@ -415,157 +415,179 @@
 
 <script>
 // ============ STATE ============
-let state = {
+var state = {
   logs: {},
   body: [],
   goals: { cals: 2000, prot: 150, carbs: 200, fat: 65, targetWeight: null, targetFat: null },
   withings: { connected: false },
   github: { token: '', configured: false }
 };
-
-let trendChart = null, bodyChart = null, pieChart = null;
-let currentPeriod = 7;
-let photoBase64 = null;
-let githubSyncing = false;
+var trendChart = null, bodyChart = null, pieChart = null;
+var currentPeriod = 7;
+var photoBase64 = null;
+var githubSyncing = false;
+var saveTimer = null;
 
 // ============ GITHUB CONFIG ============
-const GITHUB_USER = 'jainomics';
-const GITHUB_REPO = 'gains-tracker';
-const GITHUB_FILE = 'food_logs.json';
-const GITHUB_API  = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${GITHUB_FILE}`;
+var GITHUB_USER = 'jainomics';
+var GITHUB_REPO = 'gains-tracker';
+var GITHUB_FILE = 'food_logs.json';
+var GITHUB_API = 'https://api.github.com/repos/jainomics/gains-tracker/contents/food_logs.json';
 
-// ============ PERSISTENCE (local) ============
-function saveLocal() { localStorage.setItem('gains_v1', JSON.stringify(state)); }
+// ============ PERSISTENCE ============
+function saveLocal() {
+  localStorage.setItem('gains_v1', JSON.stringify(state));
+}
 function loadLocal() {
-  const raw = localStorage.getItem('gains_v1');
-  // migrate old key
-  const old = localStorage.getItem('macros_v2');
-  if (raw) { try { state = { ...state, ...JSON.parse(raw) }; } catch(e){} }
-  else if (old) { try { state = { ...state, ...JSON.parse(old) }; } catch(e){} }
+  var raw = localStorage.getItem('gains_v1');
+  var old = localStorage.getItem('macros_v2');
+  if (raw) {
+    try {
+      var p = JSON.parse(raw);
+      if (p.logs) state.logs = p.logs;
+      if (p.body) state.body = p.body;
+      if (p.goals) state.goals = p.goals;
+      if (p.withings) state.withings = p.withings;
+      if (p.github) state.github = p.github;
+    } catch(e) {}
+  } else if (old) {
+    try {
+      var p2 = JSON.parse(old);
+      if (p2.logs) state.logs = p2.logs;
+      if (p2.body) state.body = p2.body;
+      if (p2.goals) state.goals = p2.goals;
+    } catch(e) {}
+  }
 }
 
 // ============ GITHUB SYNC ============
-function getToken() { return state.github.token || localStorage.getItem('gh_token') || ''; }
+function getToken() {
+  if (state.github && state.github.token) return state.github.token;
+  return localStorage.getItem('gh_token') || '';
+}
 
-async function githubRead() {
-  const token = getToken();
-  if (!token) return null;
-  try {
-    const resp = await fetch(GITHUB_API, {
-      headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' }
-    });
-    if (resp.status === 404) return null; // file doesn't exist yet, that's fine
-    if (!resp.ok) throw new Error(`GitHub read failed: ${resp.status}`);
-    const data = await resp.json();
-    const decoded = JSON.parse(atob(data.content.split('\n').join('').split('\r').join('')));
+function githubRead() {
+  var token = getToken();
+  if (!token) return Promise.resolve(null);
+  return fetch(GITHUB_API, {
+    headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' }
+  }).then(function(resp) {
+    if (resp.status === 404) return null;
+    if (!resp.ok) { throw new Error('GitHub error: ' + resp.status); }
+    return resp.json();
+  }).then(function(data) {
+    if (!data) return null;
+    var raw = data.content;
+    var cleaned = '';
+    for (var i = 0; i < raw.length; i++) {
+      var ch = raw.charCodeAt(i);
+      if (ch !== 10 && ch !== 13 && ch !== 32) cleaned += raw[i];
+    }
+    var decoded = JSON.parse(atob(cleaned));
     return { data: decoded, sha: data.sha };
-  } catch(e) {
-    console.warn('GitHub read error:', e.message);
+  }).catch(function(e) {
+    console.warn('GitHub read:', e.message);
     return null;
-  }
+  });
 }
 
-async function githubWrite(payload, sha) {
-  const token = getToken();
-  if (!token) return false;
-  try {
-    const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
-    const body = { message: 'Gains Tracker sync', content };
-    if (sha) body.sha = sha;
-    const resp = await fetch(GITHUB_API, {
-      method: 'PUT',
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
+function githubWrite(payload, sha) {
+  var token = getToken();
+  if (!token) return Promise.resolve(false);
+  var content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+  var body = { message: 'Gains Tracker sync', content: content };
+  if (sha) body.sha = sha;
+  return fetch(GITHUB_API, {
+    method: 'PUT',
+    headers: {
+      'Authorization': 'token ' + token,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  }).then(function(resp) {
     return resp.ok;
-  } catch(e) {
-    console.warn('GitHub write error:', e.message);
+  }).catch(function(e) {
+    console.warn('GitHub write:', e.message);
     return false;
-  }
+  });
 }
 
-async function syncToGitHub() {
-  if (githubSyncing || !getToken()) return;
+function syncToGitHub() {
+  if (githubSyncing || !getToken()) return Promise.resolve();
   githubSyncing = true;
   updateSyncStatus('syncing');
-  try {
-    const remote = await githubRead();
-    const remoteLogs = remote?.data?.logs || {};
-    const remoteBody = remote?.data?.body || [];
-    const sha = remote?.sha || null;
-
-    // Merge remote into local — remote wins for any date it has data
-    const mergedLogs = { ...state.logs };
-    Object.keys(remoteLogs).forEach(date => {
-      if (!mergedLogs[date] || remoteLogs[date].length > mergedLogs[date].length) {
-        mergedLogs[date] = remoteLogs[date];
+  return githubRead().then(function(remote) {
+    var remoteLogs = (remote && remote.data && remote.data.logs) ? remote.data.logs : {};
+    var remoteBody = (remote && remote.data && remote.data.body) ? remote.data.body : [];
+    var sha = (remote && remote.sha) ? remote.sha : null;
+    var mergedLogs = {};
+    var k;
+    for (k in state.logs) { mergedLogs[k] = state.logs[k]; }
+    for (k in remoteLogs) {
+      if (!mergedLogs[k] || remoteLogs[k].length > mergedLogs[k].length) {
+        mergedLogs[k] = remoteLogs[k];
       }
-    });
-
-    // Merge body measurements by date
-    const bodyMap = {};
-    state.body.forEach(b => bodyMap[b.date] = b);
-    remoteBody.forEach(b => { if (!bodyMap[b.date]) bodyMap[b.date] = b; });
-    const mergedBody = Object.values(bodyMap).sort((a,b) => a.date.localeCompare(b.date));
-
+    }
+    var bodyMap = {};
+    var i;
+    for (i = 0; i < state.body.length; i++) { bodyMap[state.body[i].date] = state.body[i]; }
+    for (i = 0; i < remoteBody.length; i++) {
+      if (!bodyMap[remoteBody[i].date]) bodyMap[remoteBody[i].date] = remoteBody[i];
+    }
+    var mergedBody = [];
+    for (k in bodyMap) { mergedBody.push(bodyMap[k]); }
+    mergedBody.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
     state.logs = mergedLogs;
     state.body = mergedBody;
     saveLocal();
-
-    const payload = {
-      last_synced: new Date().toISOString(),
-      logs: state.logs,
-      body: state.body,
-      goals: state.goals
-    };
-    const ok = await githubWrite(payload, sha);
+    var payload = { last_synced: new Date().toISOString(), logs: state.logs, body: state.body, goals: state.goals };
+    return githubWrite(payload, sha);
+  }).then(function(ok) {
     updateSyncStatus(ok ? 'synced' : 'error');
     if (ok) updateTodayDisplay();
-  } catch(e) {
+    githubSyncing = false;
+  }).catch(function() {
     updateSyncStatus('error');
-  }
-  githubSyncing = false;
+    githubSyncing = false;
+  });
 }
 
 function updateSyncStatus(status) {
-  const el = document.getElementById('sync-status');
+  var el = document.getElementById('sync-status');
   if (!el) return;
-  const map = {
-    syncing: ['⟳ Syncing...', '#9499a5'],
-    synced:  ['✓ Synced', '#3ecf8e'],
-    error:   ['⚠ Sync error', '#e85c5c'],
-    offline: ['○ Local only', '#5c6070']
-  };
-  const [text, color] = map[status] || map.offline;
-  el.textContent = text;
-  el.style.color = color;
+  if (status === 'syncing') { el.textContent = 'Syncing...'; el.style.color = '#9499a5'; }
+  else if (status === 'synced') { el.textContent = 'Synced'; el.style.color = '#3ecf8e'; }
+  else if (status === 'error') { el.textContent = 'Sync error'; el.style.color = '#e85c5c'; }
+  else { el.textContent = 'Local only'; el.style.color = '#5c6070'; }
 }
 
 function save() {
   saveLocal();
-  // Debounce GitHub sync — wait 1.5s after last save before syncing
-  clearTimeout(save._timer);
-  save._timer = setTimeout(syncToGitHub, 1500);
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(syncToGitHub, 1500);
 }
-
 function load() { loadLocal(); }
 
 // ============ UTILS ============
 function today() { return new Date().toISOString().split('T')[0]; }
 function fmt(n) { return Math.round(n).toLocaleString(); }
-function toast(msg, dur=2500) {
-  const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), dur);
+
+function toast(msg, dur) {
+  if (!dur) dur = 2500;
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(function() { el.classList.remove('show'); }, dur);
 }
+
 function showPage(id) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('page-'+id).classList.add('active');
+  var pages = document.querySelectorAll('.page');
+  var tabs = document.querySelectorAll('.nav-tab');
+  var i;
+  for (i = 0; i < pages.length; i++) pages[i].classList.remove('active');
+  for (i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
+  document.getElementById('page-' + id).classList.add('active');
   event.target.classList.add('active');
   if (id === 'trends') renderTrends();
   if (id === 'goals') renderGoals();
@@ -574,95 +596,109 @@ function showPage(id) {
 
 // ============ TODAY PAGE ============
 function updateTodayDisplay() {
-  const d = today();
-  const logs = state.logs[d] || [];
-  const totals = logs.reduce((a, l) => ({ cals: a.cals+(l.cals||0), prot: a.prot+(l.prot||0), carbs: a.carbs+(l.carbs||0), fat: a.fat+(l.fat||0) }), {cals:0,prot:0,carbs:0,fat:0});
-  document.getElementById('d-cals').textContent = fmt(totals.cals);
-  document.getElementById('d-prot').textContent = fmt(totals.prot);
+  var d = today();
+  var logs = state.logs[d] || [];
+  var cals = 0, prot = 0;
+  var i;
+  for (i = 0; i < logs.length; i++) { cals += (logs[i].cals || 0); prot += (logs[i].prot || 0); }
+  document.getElementById('d-cals').textContent = fmt(cals);
+  document.getElementById('d-prot').textContent = fmt(prot);
   document.getElementById('d-cals-goal').textContent = state.goals.cals;
   document.getElementById('d-prot-goal').textContent = state.goals.prot;
-  const pct = (v,g) => Math.min(100, Math.round(v/g*100)) + '%';
-  document.getElementById('bar-cals').style.width = pct(totals.cals, state.goals.cals);
-  document.getElementById('bar-prot').style.width = pct(totals.prot, state.goals.prot);
+  var calPct = Math.min(100, Math.round(cals / state.goals.cals * 100));
+  var protPct = Math.min(100, Math.round(prot / state.goals.prot * 100));
+  document.getElementById('bar-cals').style.width = calPct + '%';
+  document.getElementById('bar-prot').style.width = protPct + '%';
   renderTodayLog();
 }
 
 function renderTodayLog() {
-  const d = today();
-  const logs = state.logs[d] || [];
-  const el = document.getElementById('today-log-list');
-  if (!logs.length) { el.innerHTML = '<div class="log-empty">No entries yet — log your first meal above</div>'; return; }
-  el.innerHTML = logs.map((l,i) => `
-    <div class="log-item">
-      <div class="log-item-info">
-        <div class="log-item-name">${l.name}</div>
-        <div class="log-item-macros">${l.prot}g protein · ${l.carbs}g carbs · ${l.fat}g fat</div>
-        <div class="log-time">${l.time || ''}</div>
-      </div>
-      <div class="log-item-cals">${fmt(l.cals)} kcal</div>
-      <button class="log-item-del" onclick="deleteEntry('${d}',${i})" title="Delete">✕</button>
-    </div>`).join('');
+  var d = today();
+  var logs = state.logs[d] || [];
+  var el = document.getElementById('today-log-list');
+  if (!logs.length) {
+    el.innerHTML = '<div class="log-empty">No entries yet — log your first meal above</div>';
+    return;
+  }
+  var html = '';
+  var i;
+  for (i = 0; i < logs.length; i++) {
+    var l = logs[i];
+    html += '<div class="log-item">' +
+      '<div class="log-item-info">' +
+      '<div class="log-item-name">' + l.name + '</div>' +
+      '<div class="log-item-macros">' + (l.prot || 0) + 'g protein</div>' +
+      '<div class="log-time">' + (l.time || '') + '</div>' +
+      '</div>' +
+      '<div class="log-item-cals">' + fmt(l.cals) + ' kcal</div>' +
+      '<button class="log-item-del" onclick="deleteEntry(\'' + d + '\',' + i + ')" title="Delete">&#10005;</button>' +
+      '</div>';
+  }
+  el.innerHTML = html;
 }
 
 function deleteEntry(date, idx) {
   state.logs[date].splice(idx, 1);
-  save(); updateTodayDisplay();
+  save();
+  updateTodayDisplay();
 }
 
 function addEntry(entry) {
-  const d = today();
+  var d = today();
   if (!state.logs[d]) state.logs[d] = [];
-  const now = new Date();
-  entry.time = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  var now = new Date();
+  entry.time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   state.logs[d].push(entry);
-  save(); updateTodayDisplay();
-  toast('✓ Logged: ' + entry.name);
+  save();
+  updateTodayDisplay();
+  toast('Logged: ' + entry.name);
 }
 
 // ============ LOG TABS ============
 function switchLogTab(tab) {
-  document.querySelectorAll('.log-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.log-panel').forEach(p => p.classList.remove('active'));
+  var ltabs = document.querySelectorAll('.log-tab');
+  var panels = document.querySelectorAll('.log-panel');
+  var i;
+  for (i = 0; i < ltabs.length; i++) ltabs[i].classList.remove('active');
+  for (i = 0; i < panels.length; i++) panels[i].classList.remove('active');
   event.target.classList.add('active');
-  document.getElementById('panel-'+tab).classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
 }
 
 // ============ AI TEXT LOG ============
-async function logFromText() {
-  const text = document.getElementById('food-text').value.trim();
+function logFromText() {
+  var text = document.getElementById('food-text').value.trim();
   if (!text) return;
-  const btn = document.getElementById('btn-text-log');
-  const status = document.getElementById('text-status');
+  var btn = document.getElementById('btn-text-log');
+  var statusEl = document.getElementById('text-status');
   btn.disabled = true;
-  status.innerHTML = '<div class="ai-status"><div class="spinner"></div>Analysing with AI...</div>';
-  try {
-    const result = await callClaude(
-      `You are a precise nutrition analyst. The user describes food they ate. Extract ALL items and return ONLY a JSON array. Each item: {name, cals, prot, carbs, fat}. Numbers only, no strings. Be accurate with portion sizes. Total the entire meal as one entry if it makes sense, or split if distinct items. Example: [{"name":"Grilled Chicken Breast 200g","cals":330,"prot":62,"carbs":0,"fat":7}]`,
-      `Food description: ${text}`
-    );
-    const items = parseJSON(result);
+  statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Analysing with AI...</div>';
+  var sys = 'You are a precise nutrition analyst. The user describes food they ate. Extract ALL items and return ONLY a JSON array. Each item: {name, cals, prot, carbs, fat}. Numbers only, no strings. Be accurate with portion sizes.';
+  callClaude(sys, 'Food description: ' + text).then(function(result) {
+    var items = parseJSON(result);
     if (items && items.length) {
-      items.forEach(item => addEntry(item));
+      var i;
+      for (i = 0; i < items.length; i++) addEntry(items[i]);
       document.getElementById('food-text').value = '';
-      status.innerHTML = '';
+      statusEl.innerHTML = '';
     } else {
-      status.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Could not parse — try being more specific</div>';
+      statusEl.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Could not parse — try being more specific</div>';
     }
-  } catch(e) {
-    status.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Error: ' + e.message + '</div>';
-  }
-  btn.disabled = false;
+    btn.disabled = false;
+  }).catch(function(e) {
+    statusEl.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Error: ' + e.message + '</div>';
+    btn.disabled = false;
+  });
 }
 
 // ============ PHOTO LOG ============
 function handlePhoto(input) {
-  const file = input.files[0];
+  var file = input.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
+  var reader = new FileReader();
+  reader.onload = function(e) {
     photoBase64 = e.target.result.split(',')[1];
-    const preview = document.getElementById('photo-preview');
-    preview.innerHTML = `<img src="${e.target.result}" class="preview-img">`;
+    document.getElementById('photo-preview').innerHTML = '<img src="' + e.target.result + '" class="preview-img">';
     document.getElementById('photo-btn-row').style.display = 'flex';
   };
   reader.readAsDataURL(file);
@@ -676,135 +712,152 @@ function clearPhoto() {
   document.getElementById('photo-status').innerHTML = '';
 }
 
-async function logFromPhoto() {
+function logFromPhoto() {
   if (!photoBase64) return;
-  const btn = document.getElementById('btn-photo-log');
-  const status = document.getElementById('photo-status');
+  var btn = document.getElementById('btn-photo-log');
+  var statusEl = document.getElementById('photo-status');
   btn.disabled = true;
-  status.innerHTML = '<div class="ai-status"><div class="spinner"></div>Identifying food and estimating macros...</div>';
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photoBase64 } },
-            { type: 'text', text: 'Identify all food items in this image and estimate their nutritional content. Return ONLY a JSON array with objects: {name, cals, prot, carbs, fat}. Estimate realistic portion sizes from what you see. Be specific with names. Numbers only, no units in the JSON values. Example: [{"name":"Scrambled Eggs 2 large","cals":182,"prot":14,"carbs":2,"fat":13}]' }
-          ]
-        }]
-      })
-    });
-    const data = await response.json();
-    const text = data.content?.map(c => c.text || '').join('');
-    const items = parseJSON(text);
-    if (items && items.length) {
-      items.forEach(item => addEntry(item));
-      clearPhoto();
-      status.innerHTML = '';
-    } else {
-      status.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Could not identify food — try a clearer photo</div>';
-    }
-  } catch(e) {
-    status.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Error: ' + e.message + '</div>';
-  }
-  btn.disabled = false;
-}
-
-// ============ MANUAL LOG ============
-function logManual() {
-  const name = document.getElementById('m-name').value.trim();
-  const cals = parseFloat(document.getElementById('m-cals').value) || 0;
-  const prot = parseFloat(document.getElementById('m-prot').value) || 0;
-  if (!name || !cals) { toast('Enter a name and calories'); return; }
-  addEntry({ name, cals, prot, carbs: 0, fat: 0 });
-  ['m-name','m-cals','m-prot'].forEach(id => document.getElementById(id).value = '');
-}
-
-// ============ AI HELPER ============
-async function callClaude(system, user) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Identifying food and estimating macros...</div>';
+  fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
-      system,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photoBase64 } },
+        { type: 'text', text: 'Identify all food items in this image. Return ONLY a JSON array: [{name, cals, prot, carbs, fat}]. Numbers only.' }
+      ]}]
+    })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    var text = '';
+    if (data.content) { var i; for (i = 0; i < data.content.length; i++) { if (data.content[i].text) text += data.content[i].text; } }
+    var items = parseJSON(text);
+    if (items && items.length) {
+      var i; for (i = 0; i < items.length; i++) addEntry(items[i]);
+      clearPhoto(); statusEl.innerHTML = '';
+    } else {
+      statusEl.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Could not identify food — try a clearer photo</div>';
+    }
+    btn.disabled = false;
+  }).catch(function(e) {
+    statusEl.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Error: ' + e.message + '</div>';
+    btn.disabled = false;
+  });
+}
+
+// ============ MANUAL LOG ============
+function logManual() {
+  var name = document.getElementById('m-name').value.trim();
+  var cals = parseFloat(document.getElementById('m-cals').value) || 0;
+  var prot = parseFloat(document.getElementById('m-prot').value) || 0;
+  if (!name || !cals) { toast('Enter a name and calories'); return; }
+  addEntry({ name: name, cals: cals, prot: prot, carbs: 0, fat: 0 });
+  document.getElementById('m-name').value = '';
+  document.getElementById('m-cals').value = '';
+  document.getElementById('m-prot').value = '';
+}
+
+// ============ AI HELPER ============
+function callClaude(system, user) {
+  return fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      system: system,
       messages: [{ role: 'user', content: user }]
     })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    var text = '';
+    if (data.content) { var i; for (i = 0; i < data.content.length; i++) { if (data.content[i].text) text += data.content[i].text; } }
+    return text;
   });
-  const data = await response.json();
-  return data.content?.map(c => c.text || '').join('') || '';
 }
 
 function parseJSON(text) {
   try {
-    const clean = text.split('```json').join('').split('```').join('').trim();
-    const match = clean.match(/\[[\s\S]*\]/);
-    return match ? JSON.parse(match[0]) : null;
+    var clean = text.split('```json').join('').split('```').join('').trim();
+    var start = clean.indexOf('[');
+    var end = clean.lastIndexOf(']');
+    if (start === -1 || end === -1) return null;
+    return JSON.parse(clean.substring(start, end + 1));
   } catch(e) { return null; }
 }
 
 // ============ BODY PAGE ============
 function renderBodyHistory() {
-  const el = document.getElementById('body-history-list');
-  const sorted = [...state.body].sort((a,b) => b.date.localeCompare(a.date));
+  var el = document.getElementById('body-history-list');
+  var sorted = state.body.slice().sort(function(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
   if (!sorted.length) { el.innerHTML = '<div class="log-empty">No measurements yet</div>'; return; }
-  el.innerHTML = sorted.map((b,i) => `
-    <div class="body-row">
-      <span class="body-row-date">${b.date}</span>
-      <span class="body-row-weight">${b.weight ? b.weight+'kg' : '—'}</span>
-      <span class="body-row-fat">${b.fat ? b.fat+'% fat' : '—'}</span>
-      <button class="body-row-del" onclick="deleteBody(${state.body.indexOf(b)})">✕</button>
-    </div>`).join('');
+  var html = '';
+  var i;
+  for (i = 0; i < sorted.length; i++) {
+    var b = sorted[i];
+    var idx = state.body.indexOf(b);
+    html += '<div class="body-row">' +
+      '<span class="body-row-date">' + b.date + '</span>' +
+      '<span class="body-row-weight">' + (b.weight ? b.weight + 'kg' : '—') + '</span>' +
+      '<span class="body-row-fat">' + (b.fat ? b.fat + '% fat' : '—') + '</span>' +
+      '<button class="body-row-del" onclick="deleteBody(' + idx + ')">&#10005;</button>' +
+      '</div>';
+  }
+  el.innerHTML = html;
 }
 
 function logBody() {
-  const date = document.getElementById('b-date').value;
-  const weight = parseFloat(document.getElementById('b-weight').value) || null;
-  const fat = parseFloat(document.getElementById('b-fat').value) || null;
+  var date = document.getElementById('b-date').value;
+  var weight = parseFloat(document.getElementById('b-weight').value) || null;
+  var fat = parseFloat(document.getElementById('b-fat').value) || null;
   if (!date || (!weight && !fat)) { toast('Enter a date and at least one metric'); return; }
-  const existing = state.body.findIndex(b => b.date === date);
-  if (existing >= 0) state.body[existing] = { date, weight, fat };
-  else state.body.push({ date, weight, fat });
-  state.body.sort((a,b) => a.date.localeCompare(b.date));
-  save(); renderBodyHistory(); toast('✓ Body measurement saved');
+  var existing = -1;
+  var i;
+  for (i = 0; i < state.body.length; i++) { if (state.body[i].date === date) { existing = i; break; } }
+  if (existing >= 0) state.body[existing] = { date: date, weight: weight, fat: fat };
+  else state.body.push({ date: date, weight: weight, fat: fat });
+  state.body.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  save();
+  renderBodyHistory();
+  toast('Body measurement saved');
 }
 
 function deleteBody(idx) {
   state.body.splice(idx, 1);
-  save(); renderBodyHistory();
+  save();
+  renderBodyHistory();
 }
 
 function loadWithingsFile(input) {
-  const file = input.files[0];
+  var file = input.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
+  var reader = new FileReader();
+  reader.onload = function(e) {
     try {
-      const data = JSON.parse(e.target.result);
-      const measurements = data.measurements || [];
+      var data = JSON.parse(e.target.result);
+      var measurements = data.measurements || [];
       if (!measurements.length) { toast('No measurements found in file'); return; }
-      // Merge into state.body (withings data wins for same date)
-      const existing = {};
-      state.body.forEach(b => existing[b.date] = b);
-      measurements.forEach(m => {
+      var existing = {};
+      var i;
+      for (i = 0; i < state.body.length; i++) existing[state.body[i].date] = state.body[i];
+      for (i = 0; i < measurements.length; i++) {
+        var m = measurements[i];
         if (m.weight || m.fat) existing[m.date] = { date: m.date, weight: m.weight, fat: m.fat };
-      });
-      state.body = Object.values(existing).sort((a,b) => a.date.localeCompare(b.date));
-      state.withings = { connected: true, lastSync: data.last_synced };
+      }
+      var merged = [];
+      var k;
+      for (k in existing) merged.push(existing[k]);
+      merged.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+      state.body = merged;
+      state.withings = { connected: true };
       save();
       renderBodyHistory();
-      const dot = document.getElementById('withings-dot');
-      dot.classList.add('connected');
+      document.getElementById('withings-dot').classList.add('connected');
       document.getElementById('withings-label').textContent = 'Synced';
-      document.getElementById('withings-load-status').textContent = `✓ ${measurements.length} measurements loaded`;
-      toast(`✓ Loaded ${measurements.length} Withings measurements`);
+      document.getElementById('withings-load-status').textContent = measurements.length + ' measurements loaded';
+      toast('Loaded ' + measurements.length + ' Withings measurements');
     } catch(err) {
-      toast('Could not read file — make sure it's the withings.json from the sync script');
+      toast('Could not read file');
     }
   };
   reader.readAsText(file);
@@ -814,27 +867,23 @@ function loadWithingsFile(input) {
 function renderGoals() {
   document.getElementById('g-cals').value = state.goals.cals || '';
   document.getElementById('g-prot').value = state.goals.prot || '';
-  document.getElementById('g-carbs').value = state.goals.carbs || '';
-  document.getElementById('g-fat').value = state.goals.fat || '';
   document.getElementById('g-tw').value = state.goals.targetWeight || '';
   document.getElementById('g-tbf').value = state.goals.targetFat || '';
-
-  const latest = state.body.length ? state.body[state.body.length-1] : null;
+  var latest = state.body.length ? state.body[state.body.length - 1] : null;
   if (latest && (state.goals.targetWeight || state.goals.targetFat)) {
-    const prog = document.getElementById('goals-progress');
     document.getElementById('goals-summary').style.display = 'block';
-    let html = '';
+    var html = '';
     if (state.goals.targetWeight && latest.weight) {
-      const diff = (latest.weight - state.goals.targetWeight).toFixed(1);
-      const cls = diff > 0 ? 'down' : 'up';
-      html += `<div class="stat-row"><span class="stat-label">Weight</span><span class="stat-val ${cls}">${latest.weight}kg → ${state.goals.targetWeight}kg (${diff > 0 ? '+' : ''}${diff}kg to go)</span></div>`;
+      var wdiff = (latest.weight - state.goals.targetWeight).toFixed(1);
+      var wcls = wdiff > 0 ? 'down' : 'up';
+      html += '<div class="stat-row"><span class="stat-label">Weight</span><span class="stat-val ' + wcls + '">' + latest.weight + 'kg to ' + state.goals.targetWeight + 'kg (' + (wdiff > 0 ? '+' : '') + wdiff + 'kg)</span></div>';
     }
     if (state.goals.targetFat && latest.fat) {
-      const diff = (latest.fat - state.goals.targetFat).toFixed(1);
-      const cls = diff > 0 ? 'down' : 'up';
-      html += `<div class="stat-row"><span class="stat-label">Body fat</span><span class="stat-val ${cls}">${latest.fat}% → ${state.goals.targetFat}% (${diff}% to go)</span></div>`;
+      var fdiff = (latest.fat - state.goals.targetFat).toFixed(1);
+      var fcls = fdiff > 0 ? 'down' : 'up';
+      html += '<div class="stat-row"><span class="stat-label">Body fat</span><span class="stat-val ' + fcls + '">' + latest.fat + '% to ' + state.goals.targetFat + '% (' + fdiff + '%)</span></div>';
     }
-    prog.innerHTML = html || '<div style="color:var(--text3);font-size:13px">Add body measurements and goals to see progress</div>';
+    document.getElementById('goals-progress').innerHTML = html;
   }
 }
 
@@ -842,59 +891,67 @@ function saveGoals() {
   state.goals = {
     cals: parseInt(document.getElementById('g-cals').value) || 2000,
     prot: parseInt(document.getElementById('g-prot').value) || 150,
-    carbs: 0,
-    fat: 0,
+    carbs: 0, fat: 0,
     targetWeight: parseFloat(document.getElementById('g-tw').value) || null,
     targetFat: parseFloat(document.getElementById('g-tbf').value) || null
   };
-  save(); updateTodayDisplay(); toast('✓ Goals saved'); renderGoals();
+  save(); updateTodayDisplay(); toast('Goals saved'); renderGoals();
 }
 
 // ============ TRENDS ============
 function setPeriod(days, btn) {
   currentPeriod = days;
-  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  var btns = document.querySelectorAll('.period-btn');
+  var i;
+  for (i = 0; i < btns.length; i++) btns[i].classList.remove('active');
   btn.classList.add('active');
   renderTrends();
 }
 
 function getDaysData(n) {
-  const days = [];
-  for (let i = n-1; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate()-i);
-    const key = d.toISOString().split('T')[0];
-    const logs = state.logs[key] || [];
-    const totals = logs.reduce((a,l) => ({ cals: a.cals+(l.cals||0), prot: a.prot+(l.prot||0), carbs: a.carbs+(l.carbs||0), fat: a.fat+(l.fat||0) }), {cals:0,prot:0,carbs:0,fat:0});
-    days.push({ date: key, label: d.toLocaleDateString('en-GB', {day:'numeric',month:'short'}), ...totals, hasData: logs.length > 0 });
+  var days = [];
+  var i;
+  for (i = n - 1; i >= 0; i--) {
+    var d = new Date();
+    d.setDate(d.getDate() - i);
+    var key = d.toISOString().split('T')[0];
+    var logs = state.logs[key] || [];
+    var cals = 0, prot = 0, j;
+    for (j = 0; j < logs.length; j++) { cals += (logs[j].cals || 0); prot += (logs[j].prot || 0); }
+    days.push({ date: key, label: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), cals: cals, prot: prot, hasData: logs.length > 0 });
   }
   return days;
 }
 
 function renderTrends() {
-  const days = getDaysData(currentPeriod);
-  const logged = days.filter(d => d.hasData);
-  const avgCals = logged.length ? Math.round(logged.reduce((a,d) => a+d.cals,0)/logged.length) : 0;
-  const avgProt = logged.length ? Math.round(logged.reduce((a,d) => a+d.prot,0)/logged.length) : 0;
-  document.getElementById('avg-cals-val').textContent = logged.length ? fmt(avgCals) : '—';
-  document.getElementById('avg-prot-val').textContent = logged.length ? fmt(avgProt) : '—';
+  var days = getDaysData(currentPeriod);
+  var logged = [];
+  var i;
+  for (i = 0; i < days.length; i++) { if (days[i].hasData) logged.push(days[i]); }
+  var avgCals = 0, avgProt = 0;
+  if (logged.length) {
+    for (i = 0; i < logged.length; i++) { avgCals += logged[i].cals; avgProt += logged[i].prot; }
+    avgCals = Math.round(avgCals / logged.length);
+    avgProt = Math.round(avgProt / logged.length);
+  }
+  document.getElementById('avg-cals-val').textContent = logged.length ? fmt(avgCals) : '--';
+  document.getElementById('avg-prot-val').textContent = logged.length ? fmt(avgProt) : '--';
 
-  // Trend chart
-  const labels = days.map(d => d.label);
-  const calData = days.map(d => d.hasData ? d.cals : null);
-  const protData = days.map(d => d.hasData ? d.prot : null);
+  var labels = [], calData = [], protData = [];
+  for (i = 0; i < days.length; i++) {
+    labels.push(days[i].label);
+    calData.push(days[i].hasData ? days[i].cals : null);
+    protData.push(days[i].hasData ? days[i].prot : null);
+  }
 
   if (trendChart) trendChart.destroy();
   trendChart = new Chart(document.getElementById('trend-chart'), {
     type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Calories', data: calData, borderColor: '#7c6ef4', backgroundColor: 'rgba(124,110,244,0.08)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#7c6ef4' },
-        { label: 'Protein (g)', data: protData, borderColor: '#3ecf8e', backgroundColor: 'rgba(62,207,142,0.08)', tension: 0.3, spanGaps: false, yAxisID: 'y2', pointRadius: 3, pointBackgroundColor: '#3ecf8e' }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
+    data: { labels: labels, datasets: [
+      { label: 'Calories', data: calData, borderColor: '#7c6ef4', backgroundColor: 'rgba(124,110,244,0.08)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#7c6ef4' },
+      { label: 'Protein g', data: protData, borderColor: '#3ecf8e', backgroundColor: 'rgba(62,207,142,0.08)', tension: 0.3, spanGaps: false, yAxisID: 'y2', pointRadius: 3, pointBackgroundColor: '#3ecf8e' }
+    ]},
+    options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5c6070', font: { size: 11 }, maxTicksLimit: 10 } },
@@ -904,168 +961,125 @@ function renderTrends() {
     }
   });
 
-  // Pie chart
-  const totCals = logged.reduce((a,d) => a+d.cals,0);
-  const totProt = logged.reduce((a,d) => a+d.prot,0);
-  const totCarbs = logged.reduce((a,d) => a+d.carbs,0);
-  const totFat = logged.reduce((a,d) => a+d.fat,0);
-  const protCals = totProt*4, carbCals = totCarbs*4, fatCals = totFat*9;
-
+  var totProt = 0;
+  for (i = 0; i < logged.length; i++) totProt += logged[i].prot;
+  var protCals = totProt * 4;
+  var otherCals = (avgCals * logged.length) - protCals;
+  if (otherCals < 0) otherCals = 0;
   if (pieChart) pieChart.destroy();
   pieChart = new Chart(document.getElementById('macro-pie'), {
     type: 'doughnut',
-    data: {
-      labels: ['Protein', 'Carbs', 'Fat'],
-      datasets: [{ data: [protCals||1, carbCals||1, fatCals||1], backgroundColor: ['#3ecf8e','#f5a623','#e85c5c'], borderWidth: 0, hoverOffset: 4 }]
-    },
+    data: { labels: ['Protein', 'Other'], datasets: [{ data: [protCals || 1, otherCals || 1], backgroundColor: ['#3ecf8e', '#2a2d36'], borderWidth: 0 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '65%' }
   });
+  var total = protCals + otherCals || 1;
+  document.getElementById('pie-legend').innerHTML = '<div class="stat-row"><div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;border-radius:2px;background:#3ecf8e"></div><span class="stat-label">Protein</span></div><span class="stat-val">' + fmt(totProt) + 'g <span style="color:var(--text3);font-size:12px">' + Math.round(protCals/total*100) + '% of cals</span></span></div>';
 
-  const total = protCals + carbCals + fatCals || 1;
-  document.getElementById('pie-legend').innerHTML = [
-    { label: 'Protein', color: '#3ecf8e', val: totProt, pct: Math.round(protCals/total*100) },
-    { label: 'Carbs', color: '#f5a623', val: totCarbs, pct: Math.round(carbCals/total*100) },
-    { label: 'Fat', color: '#e85c5c', val: totFat, pct: Math.round(fatCals/total*100) }
-  ].map(m => `
-    <div class="stat-row">
-      <div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;border-radius:2px;background:${m.color};flex-shrink:0"></div><span class="stat-label">${m.label}</span></div>
-      <span class="stat-val">${fmt(m.val)}g <span style="color:var(--text3);font-size:12px">${m.pct}%</span></span>
-    </div>`).join('');
-
-  // Body chart
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-currentPeriod);
-  const bodyInRange = state.body.filter(b => new Date(b.date) >= cutoff).sort((a,b) => a.date.localeCompare(b.date));
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - currentPeriod);
+  var bodyInRange = [];
+  for (i = 0; i < state.body.length; i++) {
+    if (new Date(state.body[i].date) >= cutoff) bodyInRange.push(state.body[i]);
+  }
+  bodyInRange.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
   if (bodyChart) bodyChart.destroy();
   if (bodyInRange.length > 0) {
+    var bLabels = [], bWeight = [], bFat = [];
+    for (i = 0; i < bodyInRange.length; i++) { bLabels.push(bodyInRange[i].date); bWeight.push(bodyInRange[i].weight); bFat.push(bodyInRange[i].fat); }
     bodyChart = new Chart(document.getElementById('body-chart'), {
       type: 'line',
-      data: {
-        labels: bodyInRange.map(b => b.date),
-        datasets: [
-          { label: 'Weight (kg)', data: bodyInRange.map(b => b.weight), borderColor: '#4a90d9', backgroundColor: 'rgba(74,144,217,0.08)', tension: 0.3, yAxisID: 'y', pointRadius: 4, pointBackgroundColor: '#4a90d9', spanGaps: true },
-          { label: 'Body fat %', data: bodyInRange.map(b => b.fat), borderColor: '#f5a623', backgroundColor: 'rgba(245,166,35,0.08)', tension: 0.3, yAxisID: 'y2', pointRadius: 4, pointBackgroundColor: '#f5a623', spanGaps: true }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
+      data: { labels: bLabels, datasets: [
+        { label: 'Weight kg', data: bWeight, borderColor: '#4a90d9', backgroundColor: 'rgba(74,144,217,0.08)', tension: 0.3, yAxisID: 'y', pointRadius: 4, pointBackgroundColor: '#4a90d9', spanGaps: true },
+        { label: 'Body fat', data: bFat, borderColor: '#f5a623', backgroundColor: 'rgba(245,166,35,0.08)', tension: 0.3, yAxisID: 'y2', pointRadius: 4, pointBackgroundColor: '#f5a623', spanGaps: true }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
           x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5c6070', font: { size: 11 } } },
           y: { position: 'left', grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#4a90d9', font: { size: 11 } } },
-          y2: { position: 'right', grid: { display: false }, ticks: { color: '#f5a623', font: { size: 11 }, callback: v => v+'%' } }
+          y2: { position: 'right', grid: { display: false }, ticks: { color: '#f5a623', font: { size: 11 } } }
         }
       }
     });
-  } else {
-    if (bodyChart) bodyChart.destroy();
-    document.getElementById('body-chart').getContext('2d').clearRect(0,0,9999,9999);
   }
 
-  // Correlations
   renderCorrelations(logged, bodyInRange);
 }
 
 function renderCorrelations(nutritionDays, bodyDays) {
-  const el = document.getElementById('correlations');
+  var el = document.getElementById('correlations');
   if (nutritionDays.length < 5 || bodyDays.length < 3) {
     el.innerHTML = '<div style="color:var(--text3);font-size:13px">Log at least 5 days of food and 3 body measurements to see correlations</div>';
     return;
   }
-  const latestBody = bodyDays[bodyDays.length-1];
-  const firstBody = bodyDays[0];
-  const weightChange = latestBody.weight && firstBody.weight ? parseFloat((latestBody.weight - firstBody.weight).toFixed(1)) : null;
-  const fatChange = latestBody.fat && firstBody.fat ? parseFloat((latestBody.fat - firstBody.fat).toFixed(1)) : null;
-  const avgCals = Math.round(nutritionDays.reduce((a,d) => a+d.cals,0)/nutritionDays.length);
-  const avgProt = Math.round(nutritionDays.reduce((a,d) => a+d.prot,0)/nutritionDays.length);
-  const calorieStatus = avgCals > state.goals.cals ? 'surplus' : avgCals < state.goals.cals - 300 ? 'deficit' : 'maintenance';
+  var latestBody = bodyDays[bodyDays.length - 1];
+  var firstBody = bodyDays[0];
+  var weightChange = (latestBody.weight && firstBody.weight) ? parseFloat((latestBody.weight - firstBody.weight).toFixed(1)) : null;
+  var fatChange = (latestBody.fat && firstBody.fat) ? parseFloat((latestBody.fat - firstBody.fat).toFixed(1)) : null;
+  var avgCals = 0, avgProt = 0, i;
+  for (i = 0; i < nutritionDays.length; i++) { avgCals += nutritionDays[i].cals; avgProt += nutritionDays[i].prot; }
+  avgCals = Math.round(avgCals / nutritionDays.length);
+  avgProt = Math.round(avgProt / nutritionDays.length);
+  var calorieStatus = avgCals > state.goals.cals ? 'surplus' : avgCals < state.goals.cals - 300 ? 'deficit' : 'maintenance';
 
-  // Recomposition score: fat going down + weight stable/up = winning
-  let recompScore = null;
-  let recompLabel = '';
-  let recompClass = 'corr-neu';
+  var recompScore = '', recompLabel = '', recompClass = 'corr-neu';
   if (weightChange !== null && fatChange !== null) {
-    if (fatChange < -0.3 && weightChange >= -0.5) {
-      recompScore = 'Recomp working'; recompClass = 'corr-pos';
-      recompLabel = 'Fat dropping, weight holding — ideal';
-    } else if (fatChange < 0 && weightChange < -0.5) {
-      recompScore = 'Cutting'; recompClass = 'corr-pos';
-      recompLabel = 'Losing fat and weight';
-    } else if (fatChange > 0.3 && weightChange > 0) {
-      recompScore = 'Bulking'; recompClass = 'corr-neg';
-      recompLabel = 'Weight and fat both up — tighten calories';
-    } else if (Math.abs(fatChange) <= 0.3 && Math.abs(weightChange) <= 0.5) {
-      recompScore = 'Maintaining'; recompClass = 'corr-neu';
-      recompLabel = 'Little change — adjust calories to move';
-    } else {
-      recompScore = 'Mixed signal'; recompClass = 'corr-neu';
-      recompLabel = 'More data needed for a clear picture';
-    }
+    if (fatChange < -0.3 && weightChange >= -0.5) { recompScore = 'Recomp working'; recompClass = 'corr-pos'; recompLabel = 'Fat dropping, weight holding — ideal'; }
+    else if (fatChange < 0 && weightChange < -0.5) { recompScore = 'Cutting'; recompClass = 'corr-pos'; recompLabel = 'Losing fat and weight'; }
+    else if (fatChange > 0.3 && weightChange > 0) { recompScore = 'Bulking'; recompClass = 'corr-neg'; recompLabel = 'Weight and fat both up — tighten calories'; }
+    else if (Math.abs(fatChange) <= 0.3 && Math.abs(weightChange) <= 0.5) { recompScore = 'Maintaining'; recompClass = 'corr-neu'; recompLabel = 'Little change — adjust calories to move'; }
+    else { recompScore = 'Mixed signal'; recompClass = 'corr-neu'; recompLabel = 'More data needed for a clear picture'; }
   }
 
-  // Protein adequacy for recomp (goal is key)
-  const protAdequate = avgProt >= state.goals.prot;
-  const protForRecomp = avgProt >= 1.8 * 80; // rough: ≥1.8g/kg for ~80kg — just directional
-
-  let insights = [];
-
+  var html = '';
   if (recompScore) {
-    insights.push(`
-      <div style="background:rgba(124,110,244,0.06);border:1px solid rgba(124,110,244,0.15);border-radius:10px;padding:14px 16px;margin-bottom:12px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-          <span class="corr-badge ${recompClass}" style="font-size:12px">${recompScore}</span>
-        </div>
-        <div style="font-size:13px;color:var(--text2)">${recompLabel}</div>
-      </div>`);
+    html += '<div style="background:rgba(124,110,244,0.06);border:1px solid rgba(124,110,244,0.15);border-radius:10px;padding:14px 16px;margin-bottom:12px">' +
+      '<span class="corr-badge ' + recompClass + '">' + recompScore + '</span>' +
+      '<div style="font-size:13px;color:var(--text2);margin-top:6px">' + recompLabel + '</div></div>';
   }
-
   if (weightChange !== null) {
-    const dir = weightChange > 0 ? '↑' : weightChange < 0 ? '↓' : '→';
-    const cls = weightChange > 0.5 ? 'corr-neg' : weightChange < -1 ? 'corr-neg' : 'corr-pos';
-    insights.push(`<div class="stat-row"><span class="stat-label">Weight change</span><span class="stat-val"><span class="corr-badge ${cls}">${dir} ${Math.abs(weightChange)}kg</span></span></div>`);
+    var warr = weightChange > 0 ? '&#8593;' : weightChange < 0 ? '&#8595;' : '&#8594;';
+    var wcls = (weightChange > 0.5 || weightChange < -1) ? 'corr-neg' : 'corr-pos';
+    html += '<div class="stat-row"><span class="stat-label">Weight change</span><span class="stat-val"><span class="corr-badge ' + wcls + '">' + warr + ' ' + Math.abs(weightChange) + 'kg</span></span></div>';
   }
   if (fatChange !== null) {
-    const dir = fatChange > 0 ? '↑' : fatChange < 0 ? '↓' : '→';
-    const cls = fatChange < 0 ? 'corr-pos' : fatChange > 0 ? 'corr-neg' : 'corr-neu';
-    insights.push(`<div class="stat-row"><span class="stat-label">Body fat change</span><span class="stat-val"><span class="corr-badge ${cls}">${dir} ${Math.abs(fatChange)}%</span></span></div>`);
+    var farr = fatChange > 0 ? '&#8593;' : fatChange < 0 ? '&#8595;' : '&#8594;';
+    var fcls = fatChange < 0 ? 'corr-pos' : fatChange > 0 ? 'corr-neg' : 'corr-neu';
+    html += '<div class="stat-row"><span class="stat-label">Body fat change</span><span class="stat-val"><span class="corr-badge ' + fcls + '">' + farr + ' ' + Math.abs(fatChange) + '%</span></span></div>';
   }
-  insights.push(`<div class="stat-row"><span class="stat-label">Avg calories</span><span class="stat-val">${fmt(avgCals)} kcal <span style="color:var(--text3);font-size:12px">${calorieStatus}</span></span></div>`);
-  insights.push(`<div class="stat-row"><span class="stat-label">Avg protein</span><span class="stat-val ${protAdequate ? 'up' : 'down'}">${fmt(avgProt)}g ${protAdequate ? '✓ on target' : '↓ below target — key for recomp'}</span></div>`);
-
-  el.innerHTML = insights.join('');
+  html += '<div class="stat-row"><span class="stat-label">Avg calories</span><span class="stat-val">' + fmt(avgCals) + ' kcal <span style="color:var(--text3);font-size:12px">' + calorieStatus + '</span></span></div>';
+  var protOk = avgProt >= state.goals.prot;
+  html += '<div class="stat-row"><span class="stat-label">Avg protein</span><span class="stat-val ' + (protOk ? 'up' : 'down') + '">' + fmt(avgProt) + 'g ' + (protOk ? '&#10003; on target' : '&#8595; below target') + '</span></div>';
+  el.innerHTML = html;
 }
 
 // ============ GITHUB TOKEN SETUP ============
 function saveGithubToken() {
-  const token = document.getElementById('gh-token-input').value.trim();
+  var token = document.getElementById('gh-token-input').value.trim();
   if (!token) { toast('Paste your GitHub token first'); return; }
-  if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
-    toast('That doesn't look like a GitHub token — it should start with ghp_');
-    return;
-  }
-  state.github = { token, configured: true };
+  state.github = { token: token, configured: true };
   localStorage.setItem('gh_token', token);
   saveLocal();
-  document.getElementById('github-status').textContent = '✓ Token saved';
+  document.getElementById('github-status').textContent = 'Token saved — syncing...';
   document.getElementById('gh-token-input').value = '';
-  toast('Token saved — syncing now...');
-  syncToGitHub().then(() => {
+  syncToGitHub().then(function() {
     updateTodayDisplay();
+    document.getElementById('github-status').textContent = 'Connected and synced';
   });
 }
 
 // ============ INIT ============
 load();
-document.getElementById('nav-date').textContent = new Date().toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
+document.getElementById('nav-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 document.getElementById('b-date').value = today();
 
-if (state.withings?.connected) {
+if (state.withings && state.withings.connected) {
   document.getElementById('withings-dot').classList.add('connected');
   document.getElementById('withings-label').textContent = 'Synced';
 }
 
-// Restore GitHub token from localStorage and sync on load
-const savedToken = localStorage.getItem('gh_token');
+var savedToken = localStorage.getItem('gh_token');
 if (savedToken) {
   state.github = { token: savedToken, configured: true };
   updateSyncStatus('syncing');
@@ -1076,17 +1090,19 @@ if (savedToken) {
 
 updateTodayDisplay();
 
-// Drag & drop for photo
-const zone = document.getElementById('camera-zone');
-zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
-zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-zone.addEventListener('drop', e => {
-  e.preventDefault(); zone.classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) {
-    const dt = new DataTransfer(); dt.items.add(file);
-    const input = document.getElementById('photo-input');
-    input.files = dt.files; handlePhoto(input);
+var zone = document.getElementById('camera-zone');
+zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', function() { zone.classList.remove('drag-over'); });
+zone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  zone.classList.remove('drag-over');
+  var file = e.dataTransfer.files[0];
+  if (file && file.type.indexOf('image/') === 0) {
+    var dt = new DataTransfer();
+    dt.items.add(file);
+    var inp = document.getElementById('photo-input');
+    inp.files = dt.files;
+    handlePhoto(inp);
   }
 });
 </script>
