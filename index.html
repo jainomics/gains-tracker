@@ -609,7 +609,7 @@ function syncWithings() {
     if (label) label.textContent = 'Synced';
     var status = document.getElementById('withings-load-status');
     if (status) status.textContent = measurements.length + ' measurements loaded';
-    log('Withings: loaded ' + measurements.length + ' measurements');
+    console.log('Withings: loaded ' + measurements.length + ' measurements');
   }).catch(function(e) {
     console.warn('Withings sync error:', e.message);
   });
@@ -926,7 +926,7 @@ function showConfirm(items, statusId, onConfirm) {
 }
 
 function confirmLog(btn) {
-  var statusEl = btn.parentNode.parentNode;
+  var statusEl = btn.parentNode.parentNode.parentNode;
   var items = statusEl._items;
   var i;
   for (i = 0; i < items.length; i++) {
@@ -941,7 +941,7 @@ function confirmLog(btn) {
 }
 
 function cancelConfirm(btn) {
-  btn.parentNode.parentNode.innerHTML = '';
+  btn.parentNode.parentNode.parentNode.innerHTML = '';
 }
 
 function parseJSON(text) {
