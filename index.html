@@ -457,8 +457,7 @@ async function githubRead() {
     if (resp.status === 404) return null; // file doesn't exist yet, that's fine
     if (!resp.ok) throw new Error(`GitHub read failed: ${resp.status}`);
     const data = await resp.json();
-    const decoded = JSON.parse(atob(data.content.replace(/
-/g, '')));
+    const decoded = JSON.parse(atob(data.content.split('\n').join('')));
     return { data: decoded, sha: data.sha };
   } catch(e) {
     console.warn('GitHub read error:', e.message);
