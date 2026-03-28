@@ -165,6 +165,18 @@
   .corr-neg { background: rgba(232,92,92,0.12); color: var(--red); }
   .corr-neu { background: rgba(150,150,150,0.12); color: var(--text3); }
 
+  .log-item-star { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 16px; padding: 4px 2px; transition: color 0.15s; line-height: 1; }
+  .log-item-star.starred { color: var(--amber); }
+  .log-item-star:hover { color: var(--amber); }
+  .quick-section-title { font-size: 11px; font-weight: 500; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 0 8px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .confirm-panel { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 16px; margin-top: 14px; }
+  .confirm-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .confirm-item:last-of-type { border-bottom: none; }
+  .confirm-item-name { flex: 1; font-size: 13px; color: var(--text); }
+  .confirm-item-inputs { display: flex; gap: 8px; align-items: center; }
+  .confirm-input { width: 70px; background: var(--surface3); border: 1px solid var(--border2); border-radius: 6px; padding: 6px 8px; color: var(--text); font-family: var(--mono); font-size: 13px; text-align: center; outline: none; }
+  .confirm-label { font-size: 11px; color: var(--text3); }
+  .confirm-actions { display: flex; gap: 10px; margin-top: 14px; }
   @media (max-width: 600px) {
     .today-header { grid-template-columns: 1fr 1fr; }
     .trend-grid { grid-template-columns: 1fr; }
@@ -208,11 +220,16 @@
   <div class="log-area">
     <div class="log-tabs">
       <div class="log-tab active" onclick="switchLogTab('text')">✏️ Describe Food</div>
+      <div class="log-tab" onclick="switchLogTab('recent')">&#9733; Quick Log</div>
       <div class="log-tab" onclick="switchLogTab('photo')">📷 Photo</div>
       <div class="log-tab" onclick="switchLogTab('barcode')">&#x25A6; Barcode</div>
       <div class="log-tab" onclick="switchLogTab('manual')">🔢 Manual Entry</div>
     </div>
     <div class="log-content">
+      <!-- RECENT TAB -->
+      <div class="log-panel" id="panel-recent">
+        <div id="recent-foods-list"></div>
+      </div>
       <!-- TEXT TAB -->
       <div class="log-panel active" id="panel-text">
         <textarea id="food-text" rows="3" placeholder="e.g. 'grilled chicken breast 200g with brown rice and broccoli' or 'grande oat milk latte from Starbucks'..."></textarea>
@@ -232,6 +249,9 @@
           <div class="camera-sub">Drag & drop or click to select</div>
         </div>
         <div id="photo-preview"></div>
+        <div id="photo-hint-row" style="display:none;margin-top:10px">
+          <textarea id="photo-hint" rows="2" placeholder="Optional: add context to guide the AI — e.g. 'large portion', 'Pret chicken salad', 'homemade curry with rice'..." style="margin-bottom:0"></textarea>
+        </div>
         <div class="btn-row" id="photo-btn-row" style="display:none">
           <button class="btn btn-primary" onclick="logFromPhoto()" id="btn-photo-log">Analyse Photo & Log</button>
           <button class="btn btn-ghost" onclick="clearPhoto()">Clear</button>
@@ -452,7 +472,9 @@ var state = {
   body: [],
   goals: { cals: 2000, prot: 150, carbs: 200, fat: 65, targetWeight: null, targetFat: null },
   withings: { connected: false },
-  github: { token: '', configured: false }
+  github: { token: '', configured: false },
+  deletions: {},  // tracks intentional deletes: {date: count}
+  favourites: []   // [{name, cals, prot}]
 };
 var trendChart = null, bodyChart = null, pieChart = null;
 var currentPeriod = 7;
@@ -482,6 +504,8 @@ function loadLocal() {
       if (p.goals) state.goals = p.goals;
       if (p.withings) state.withings = p.withings;
       if (p.github) state.github = p.github;
+      if (p.deletions) state.deletions = p.deletions;
+      if (p.favourites) state.favourites = p.favourites;
     } catch(e) {}
   } else if (old) {
     try {
@@ -603,10 +627,28 @@ function syncToGitHub() {
     var k;
     for (k in state.logs) { mergedLogs[k] = state.logs[k]; }
     for (k in remoteLogs) {
-      if (!mergedLogs[k] || remoteLogs[k].length > mergedLogs[k].length) {
+      var deletedCount = (state.deletions && state.deletions[k]) ? state.deletions[k] : 0;
+      if (deletedCount > 0) {
+        // User explicitly deleted from this date — always keep local version
+        // (if no local entries for this date, keep it empty)
+      } else if (!mergedLogs[k]) {
+        // Date not in local at all — take remote (new data from another device)
+        mergedLogs[k] = remoteLogs[k];
+      } else if (remoteLogs[k].length > mergedLogs[k].length) {
+        // Remote has more entries and no deletions — take remote (another device added something)
         mergedLogs[k] = remoteLogs[k];
       }
+      // Otherwise keep local as-is
     }
+    // Merge favourites — combine both, dedupe by name, remote additions win
+    var remoteFavs = (remote && remote.data && remote.data.favourites) ? remote.data.favourites : [];
+    var favMap = {};
+    var fi;
+    for (fi = 0; fi < state.favourites.length; fi++) favMap[state.favourites[fi].name] = state.favourites[fi];
+    for (fi = 0; fi < remoteFavs.length; fi++) favMap[remoteFavs[fi].name] = remoteFavs[fi];
+    state.favourites = [];
+    for (var fk in favMap) state.favourites.push(favMap[fk]);
+
     var bodyMap = {};
     var i;
     for (i = 0; i < state.body.length; i++) { bodyMap[state.body[i].date] = state.body[i]; }
@@ -619,7 +661,7 @@ function syncToGitHub() {
     state.logs = mergedLogs;
     state.body = mergedBody;
     saveLocal();
-    var payload = { last_synced: new Date().toISOString(), logs: state.logs, body: state.body, goals: state.goals };
+    var payload = { last_synced: new Date().toISOString(), logs: state.logs, body: state.body, goals: state.goals, deletions: state.deletions || {}, favourites: state.favourites || [] };
     return githubWrite(payload, sha);
   }).then(function(ok) {
     updateSyncStatus(ok ? 'synced' : 'error');
@@ -717,8 +759,13 @@ function renderTodayLog() {
 
 function deleteEntry(date, idx) {
   state.logs[date].splice(idx, 1);
-  save();
+  // Track this deletion so sync doesn't restore it from remote
+  if (!state.deletions) state.deletions = {};
+  state.deletions[date] = (state.deletions[date] || 0) + 1;
+  saveLocal();
   updateTodayDisplay();
+  // Sync immediately so deletion propagates before any re-fetch
+  syncToGitHub();
 }
 
 function addEntry(entry) {
@@ -741,6 +788,7 @@ function switchLogTab(tab) {
   for (i = 0; i < panels.length; i++) panels[i].classList.remove('active');
   event.target.classList.add('active');
   document.getElementById('panel-' + tab).classList.add('active');
+  if (tab === 'recent') renderRecentFoods();
 }
 
 // ============ AI TEXT LOG ============
@@ -751,14 +799,13 @@ function logFromText() {
   var statusEl = document.getElementById('text-status');
   btn.disabled = true;
   statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Analysing with AI...</div>';
-  var sys = 'You are a precise nutrition analyst. The user describes food they ate. Extract ALL items and return ONLY a JSON array. Each item: {name, cals, prot, carbs, fat}. Numbers only, no strings. Be accurate with portion sizes.';
+  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. Use UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. When uncertain about portion size, estimate conservatively. For branded UK products use their actual nutritional values.';
   callClaude(sys, 'Food description: ' + text).then(function(result) {
     var items = parseJSON(result);
     if (items && items.length) {
-      var i;
-      for (i = 0; i < items.length; i++) addEntry(items[i]);
-      document.getElementById('food-text').value = '';
-      statusEl.innerHTML = '';
+      showConfirm(items, 'text-status', function() {
+        document.getElementById('food-text').value = '';
+      });
     } else {
       statusEl.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Could not parse — try being more specific</div>';
     }
@@ -777,6 +824,7 @@ function handlePhoto(input) {
   reader.onload = function(e) {
     photoBase64 = e.target.result.split(',')[1];
     document.getElementById('photo-preview').innerHTML = '<img src="' + e.target.result + '" class="preview-img">';
+    document.getElementById('photo-hint-row').style.display = 'block';
     document.getElementById('photo-btn-row').style.display = 'flex';
   };
   reader.readAsDataURL(file);
@@ -785,6 +833,8 @@ function handlePhoto(input) {
 function clearPhoto() {
   photoBase64 = null;
   document.getElementById('photo-preview').innerHTML = '';
+  document.getElementById('photo-hint-row').style.display = 'none';
+  document.getElementById('photo-hint').value = '';
   document.getElementById('photo-btn-row').style.display = 'none';
   document.getElementById('photo-input').value = '';
   document.getElementById('photo-status').innerHTML = '';
@@ -804,7 +854,7 @@ function logFromPhoto() {
       max_tokens: 1000,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photoBase64 } },
-        { type: 'text', text: 'Identify all food items in this image. Return ONLY a JSON array: [{name, cals, prot, carbs, fat}]. Numbers only.' }
+        { type: 'text', text: 'You are a UK nutrition analyst. Identify all food items visible. Use plate size, hand size, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Be conservative when uncertain about portion size.' + (document.getElementById('photo-hint').value.trim() ? ' Additional context from user: ' + document.getElementById('photo-hint').value.trim() : '') }
       ]}]
     })
   }).then(function(r) { return r.json(); }).then(function(data) {
@@ -812,8 +862,7 @@ function logFromPhoto() {
     if (data.content) { var i; for (i = 0; i < data.content.length; i++) { if (data.content[i].text) text += data.content[i].text; } }
     var items = parseJSON(text);
     if (items && items.length) {
-      var i; for (i = 0; i < items.length; i++) addEntry(items[i]);
-      clearPhoto(); statusEl.innerHTML = '';
+      showConfirm(items, 'photo-status', function() { clearPhoto(); });
     } else {
       statusEl.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Could not identify food — try a clearer photo</div>';
     }
@@ -855,6 +904,47 @@ function callClaude(system, user) {
     if (data.content) { var i; for (i = 0; i < data.content.length; i++) { if (data.content[i].text) text += data.content[i].text; } }
     return text;
   });
+}
+
+// ============ CONFIRM BEFORE LOG ============
+function showConfirm(items, statusId, onConfirm) {
+  var statusEl = document.getElementById(statusId);
+  var rows = '';
+  var i;
+  for (i = 0; i < items.length; i++) {
+    var item = items[i];
+    rows += '<div class="confirm-item">' +
+      '<div class="confirm-item-name">' + item.name + '</div>' +
+      '<div class="confirm-item-inputs">' +
+      '<div><div class="confirm-label">kcal</div><input class="confirm-input" type="number" id="ci-cals-' + i + '" value="' + (item.cals || 0) + '"></div>' +
+      '<div><div class="confirm-label">protein g</div><input class="confirm-input" type="number" id="ci-prot-' + i + '" value="' + (item.prot || 0) + '"></div>' +
+      '</div></div>';
+  }
+  statusEl.innerHTML = '<div class="confirm-panel">' +
+    '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">Review and edit before logging</div>' +
+    rows +
+    '<div class="confirm-actions">' +
+    '<button class="btn btn-primary" onclick="confirmLog(' + items.length + ','' + statusId + '')" style="flex:1;justify-content:center">Log it</button>' +
+    '<button class="btn btn-ghost" onclick="document.getElementById('' + statusId + '').innerHTML=''" style="justify-content:center">Cancel</button>' +
+    '</div></div>';
+  // store items for confirm step
+  statusEl._items = items;
+  statusEl._onConfirm = onConfirm;
+}
+
+function confirmLog(count, statusId) {
+  var statusEl = document.getElementById(statusId);
+  var items = statusEl._items;
+  var i;
+  for (i = 0; i < count; i++) {
+    var cals = parseFloat(document.getElementById('ci-cals-' + i).value) || 0;
+    var prot = parseFloat(document.getElementById('ci-prot-' + i).value) || 0;
+    if (cals > 0) {
+      addEntry({ name: items[i].name, cals: cals, prot: prot, carbs: 0, fat: 0 });
+    }
+  }
+  statusEl.innerHTML = '';
+  if (statusEl._onConfirm) statusEl._onConfirm();
 }
 
 function parseJSON(text) {
@@ -1135,6 +1225,121 @@ function renderCorrelations(nutritionDays, bodyDays) {
   el.innerHTML = html;
 }
 
+// ============ RECENT FOODS ============
+// ============ FAVOURITES ============
+function isFavourite(name) {
+  var i;
+  for (i = 0; i < state.favourites.length; i++) {
+    if (state.favourites[i].name === name) return true;
+  }
+  return false;
+}
+
+function toggleFavourite(date, idx, btn) {
+  var entry = state.logs[date] && state.logs[date][idx];
+  if (!entry) return;
+  if (isFavourite(entry.name)) {
+    // Remove from favourites
+    state.favourites = state.favourites.filter(function(f) { return f.name !== entry.name; });
+    btn.classList.remove('starred');
+    toast('Removed from favourites');
+  } else {
+    // Add to favourites
+    state.favourites.push({ name: entry.name, cals: entry.cals, prot: entry.prot || 0 });
+    btn.classList.add('starred');
+    toast('Added to favourites');
+  }
+  save();
+}
+
+function removeFavourite(name) {
+  state.favourites = state.favourites.filter(function(f) { return f.name !== name; });
+  save();
+  renderRecentFoods();
+}
+
+function renderRecentFoods() {
+  var el = document.getElementById('recent-foods-list');
+  if (!el) return;
+
+  var html = '';
+  var allFoods = [];  // flat list: favourites first, then recent (for relogFood index)
+
+  // ── Favourites section ────────────────────────────────────────────────────
+  if (state.favourites && state.favourites.length) {
+    html += '<div class="quick-section-title">&#9733; Favourites</div>';
+    var fi;
+    for (fi = 0; fi < state.favourites.length; fi++) {
+      var fav = state.favourites[fi];
+      var fidx = allFoods.length;
+      allFoods.push(fav);
+      html += '<div class="log-item">' +
+        '<div class="log-item-info" style="cursor:pointer" onclick="relogFood(' + fidx + ')">' +
+        '<div class="log-item-name">' + fav.name + '</div>' +
+        '<div class="log-item-macros">' + (fav.prot || 0) + 'g protein</div>' +
+        '</div>' +
+        '<div class="log-item-cals" style="cursor:pointer" onclick="relogFood(' + fidx + ')">' + fmt(fav.cals) + ' kcal</div>' +
+        '<button class="log-item-del" onclick="removeFavourite('' + fav.name.replace(/'/g, "\'") + '')" title="Remove favourite" style="color:var(--amber)">&#9733;</button>' +
+        '</div>';
+    }
+  }
+
+  // ── Recent section ────────────────────────────────────────────────────────
+  var seen = {};
+  var recentFoods = [];
+  // Mark favourite names as seen so they don't duplicate in recent
+  var si;
+  for (si = 0; si < state.favourites.length; si++) seen[state.favourites[si].name] = true;
+
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 14);
+  var dates = Object.keys(state.logs).sort().reverse();
+  var i, j;
+  for (i = 0; i < dates.length; i++) {
+    if (new Date(dates[i]) < cutoff) break;
+    var dayLogs = state.logs[dates[i]];
+    for (j = dayLogs.length - 1; j >= 0; j--) {
+      var l = dayLogs[j];
+      if (!seen[l.name]) {
+        seen[l.name] = true;
+        recentFoods.push(l);
+      }
+    }
+  }
+
+  if (recentFoods.length) {
+    html += '<div class="quick-section-title" style="margin-top:' + (state.favourites.length ? '16px' : '0') + '">&#9201; Recent</div>';
+    for (i = 0; i < recentFoods.length && i < 15; i++) {
+      var rf = recentFoods[i];
+      var ridx = allFoods.length;
+      allFoods.push(rf);
+      html += '<div class="log-item" style="cursor:pointer" onclick="relogFood(' + ridx + ')">' +
+        '<div class="log-item-info">' +
+        '<div class="log-item-name">' + rf.name + '</div>' +
+        '<div class="log-item-macros">' + (rf.prot || 0) + 'g protein</div>' +
+        '</div>' +
+        '<div class="log-item-cals">' + fmt(rf.cals) + ' kcal</div>' +
+        '<div style="font-size:18px;color:var(--text3);padding-left:8px;line-height:1">+</div>' +
+        '</div>';
+    }
+  }
+
+  if (!allFoods.length) {
+    html = '<div class="log-empty">No foods yet — log your first meal and star it to save as a favourite</div>';
+  }
+
+  el.innerHTML = html;
+  el._foods = allFoods;
+}
+
+function relogFood(idx) {
+  var foods = document.getElementById('recent-foods-list')._foods;
+  if (!foods || !foods[idx]) return;
+  var f = foods[idx];
+  var items = [{ name: f.name, cals: f.cals, prot: f.prot || 0 }];
+  showConfirm(items, 'recent-foods-list', function() { renderRecentFoods(); });
+}
+
 // ============ BARCODE SCANNER ============
 var barcodeReader = null;
 var barcodeStream = null;
@@ -1223,10 +1428,11 @@ function logFromBarcode() {
   var prot = parseFloat(document.getElementById('barcode-prot-input').value) || 0;
   var serving = document.getElementById('barcode-serving').value;
   if (!cals) { toast('No calorie data found — enter manually'); return; }
-  addEntry({ name: name + ' (' + serving + 'g)', cals: cals, prot: prot, carbs: 0, fat: 0 });
+  var items = [{ name: name + ' (' + serving + 'g)', cals: cals, prot: prot }];
   document.getElementById('barcode-result').style.display = 'none';
-  document.getElementById('barcode-input').value = '';
-  document.getElementById('barcode-status').innerHTML = '';
+  showConfirm(items, 'barcode-status', function() {
+    document.getElementById('barcode-input').value = '';
+  });
 }
 
 // ============ GITHUB TOKEN SETUP ============
