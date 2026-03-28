@@ -762,9 +762,9 @@ function logFromPhoto() {
   var statusEl = document.getElementById('photo-status');
   btn.disabled = true;
   statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Identifying food and estimating macros...</div>';
-  fetch('https://api.anthropic.com/v1/messages', {
+  fetch(WORKER_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Secret': WORKER_SECRET },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
@@ -803,10 +803,13 @@ function logManual() {
 }
 
 // ============ AI HELPER ============
+var WORKER_URL = 'https://gains-tracker-proxy.jainomics.workers.dev';
+var WORKER_SECRET = 'gains2024';
+
 function callClaude(system, user) {
-  return fetch('https://api.anthropic.com/v1/messages', {
+  return fetch(WORKER_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Secret': WORKER_SECRET },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
