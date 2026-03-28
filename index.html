@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Macros & Body Tracker</title>
+<title>Gains Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -177,14 +177,14 @@
 <body>
 
 <nav>
-  <span class="nav-brand">⬡ macros</span>
+  <span class="nav-brand">⬡ gains</span>
   <div class="nav-tabs">
     <button class="nav-tab active" onclick="showPage('today')">Today</button>
     <button class="nav-tab" onclick="showPage('trends')">Trends</button>
     <button class="nav-tab" onclick="showPage('body')">Body</button>
     <button class="nav-tab" onclick="showPage('goals')">Goals</button>
   </div>
-  <span class="nav-date" id="nav-date"></span>
+  <span class="nav-date" id="nav-date"></span><span id="sync-status" style="font-size:11px;font-family:var(--mono);color:var(--text3);margin-left:12px">○ Local only</span>
 </nav>
 
 <!-- TODAY -->
@@ -394,6 +394,21 @@
     <div class="section-title" style="margin-top:0">Progress to goal</div>
     <div id="goals-progress"></div>
   </div>
+
+  <div class="card">
+    <div class="section-title" style="margin-top:0">GitHub sync</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+      Your food logs sync automatically to your private <span style="font-family:var(--mono);font-size:12px;color:var(--accent2);background:rgba(124,110,244,0.1);padding:2px 6px;border-radius:4px">jainomics/gains-tracker</span> repository — available on all your devices. Paste your GitHub Personal Access Token once to activate.
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:10px">
+      <input type="password" id="gh-token-input" placeholder="ghp_your_token_here" style="flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:var(--mono);font-size:12px;outline:none;transition:border .15s">
+      <button class="btn btn-primary" onclick="saveGithubToken()">Save & Sync</button>
+    </div>
+    <div id="github-status" style="font-size:12px;color:var(--text3)"></div>
+    <div style="margin-top:10px;padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text3);line-height:1.7">
+      Token is stored only in your browser. The app syncs automatically after each food entry. Your token expires in 90 days — you'll see a sync error when it does, at which point generate a new one on GitHub and paste it here.
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -401,22 +416,144 @@
 <script>
 // ============ STATE ============
 let state = {
-  logs: {},     // { "YYYY-MM-DD": [{name, cals, prot, carbs, fat, time}] }
-  body: [],     // [{date, weight, fat}]
+  logs: {},
+  body: [],
   goals: { cals: 2000, prot: 150, carbs: 200, fat: 65, targetWeight: null, targetFat: null },
-  withings: { connected: false, token: '' }
+  withings: { connected: false },
+  github: { token: '', configured: false }
 };
 
 let trendChart = null, bodyChart = null, pieChart = null;
 let currentPeriod = 7;
 let photoBase64 = null;
+let githubSyncing = false;
 
-// ============ PERSISTENCE ============
-function save() { localStorage.setItem('macros_v2', JSON.stringify(state)); }
-function load() {
-  const raw = localStorage.getItem('macros_v2');
+// ============ GITHUB CONFIG ============
+const GITHUB_USER = 'jainomics';
+const GITHUB_REPO = 'gains-tracker';
+const GITHUB_FILE = 'food_logs.json';
+const GITHUB_API  = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${GITHUB_FILE}`;
+
+// ============ PERSISTENCE (local) ============
+function saveLocal() { localStorage.setItem('gains_v1', JSON.stringify(state)); }
+function loadLocal() {
+  const raw = localStorage.getItem('gains_v1');
+  // migrate old key
+  const old = localStorage.getItem('macros_v2');
   if (raw) { try { state = { ...state, ...JSON.parse(raw) }; } catch(e){} }
+  else if (old) { try { state = { ...state, ...JSON.parse(old) }; } catch(e){} }
 }
+
+// ============ GITHUB SYNC ============
+function getToken() { return state.github.token || localStorage.getItem('gh_token') || ''; }
+
+async function githubRead() {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const resp = await fetch(GITHUB_API, {
+      headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' }
+    });
+    if (resp.status === 404) return null; // file doesn't exist yet, that's fine
+    if (!resp.ok) throw new Error(`GitHub read failed: ${resp.status}`);
+    const data = await resp.json();
+    const decoded = JSON.parse(atob(data.content.replace(/
+/g, '')));
+    return { data: decoded, sha: data.sha };
+  } catch(e) {
+    console.warn('GitHub read error:', e.message);
+    return null;
+  }
+}
+
+async function githubWrite(payload, sha) {
+  const token = getToken();
+  if (!token) return false;
+  try {
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+    const body = { message: 'Gains Tracker sync', content };
+    if (sha) body.sha = sha;
+    const resp = await fetch(GITHUB_API, {
+      method: 'PUT',
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    return resp.ok;
+  } catch(e) {
+    console.warn('GitHub write error:', e.message);
+    return false;
+  }
+}
+
+async function syncToGitHub() {
+  if (githubSyncing || !getToken()) return;
+  githubSyncing = true;
+  updateSyncStatus('syncing');
+  try {
+    const remote = await githubRead();
+    const remoteLogs = remote?.data?.logs || {};
+    const remoteBody = remote?.data?.body || [];
+    const sha = remote?.sha || null;
+
+    // Merge remote into local — remote wins for any date it has data
+    const mergedLogs = { ...state.logs };
+    Object.keys(remoteLogs).forEach(date => {
+      if (!mergedLogs[date] || remoteLogs[date].length > mergedLogs[date].length) {
+        mergedLogs[date] = remoteLogs[date];
+      }
+    });
+
+    // Merge body measurements by date
+    const bodyMap = {};
+    state.body.forEach(b => bodyMap[b.date] = b);
+    remoteBody.forEach(b => { if (!bodyMap[b.date]) bodyMap[b.date] = b; });
+    const mergedBody = Object.values(bodyMap).sort((a,b) => a.date.localeCompare(b.date));
+
+    state.logs = mergedLogs;
+    state.body = mergedBody;
+    saveLocal();
+
+    const payload = {
+      last_synced: new Date().toISOString(),
+      logs: state.logs,
+      body: state.body,
+      goals: state.goals
+    };
+    const ok = await githubWrite(payload, sha);
+    updateSyncStatus(ok ? 'synced' : 'error');
+    if (ok) updateTodayDisplay();
+  } catch(e) {
+    updateSyncStatus('error');
+  }
+  githubSyncing = false;
+}
+
+function updateSyncStatus(status) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  const map = {
+    syncing: ['⟳ Syncing...', '#9499a5'],
+    synced:  ['✓ Synced', '#3ecf8e'],
+    error:   ['⚠ Sync error', '#e85c5c'],
+    offline: ['○ Local only', '#5c6070']
+  };
+  const [text, color] = map[status] || map.offline;
+  el.textContent = text;
+  el.style.color = color;
+}
+
+function save() {
+  saveLocal();
+  // Debounce GitHub sync — wait 1.5s after last save before syncing
+  clearTimeout(save._timer);
+  save._timer = setTimeout(syncToGitHub, 1500);
+}
+
+function load() { loadLocal(); }
 
 // ============ UTILS ============
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -899,6 +1036,25 @@ function renderCorrelations(nutritionDays, bodyDays) {
   el.innerHTML = insights.join('');
 }
 
+// ============ GITHUB TOKEN SETUP ============
+function saveGithubToken() {
+  const token = document.getElementById('gh-token-input').value.trim();
+  if (!token) { toast('Paste your GitHub token first'); return; }
+  if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+    toast('That doesn't look like a GitHub token — it should start with ghp_');
+    return;
+  }
+  state.github = { token, configured: true };
+  localStorage.setItem('gh_token', token);
+  saveLocal();
+  document.getElementById('github-status').textContent = '✓ Token saved';
+  document.getElementById('gh-token-input').value = '';
+  toast('Token saved — syncing now...');
+  syncToGitHub().then(() => {
+    updateTodayDisplay();
+  });
+}
+
 // ============ INIT ============
 load();
 document.getElementById('nav-date').textContent = new Date().toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
@@ -907,6 +1063,16 @@ document.getElementById('b-date').value = today();
 if (state.withings?.connected) {
   document.getElementById('withings-dot').classList.add('connected');
   document.getElementById('withings-label').textContent = 'Synced';
+}
+
+// Restore GitHub token from localStorage and sync on load
+const savedToken = localStorage.getItem('gh_token');
+if (savedToken) {
+  state.github = { token: savedToken, configured: true };
+  updateSyncStatus('syncing');
+  syncToGitHub();
+} else {
+  updateSyncStatus('offline');
 }
 
 updateTodayDisplay();
