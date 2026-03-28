@@ -1237,7 +1237,12 @@ function toggleFavourite(date, idx, btn) {
   if (!entry) return;
   if (isFavourite(entry.name)) {
     // Remove from favourites
-    state.favourites = state.favourites.filter(function(f) { return f.name !== entry.name; });
+    var newFavs = [];
+  var fi;
+  for (fi = 0; fi < state.favourites.length; fi++) {
+    if (state.favourites[fi].name !== entry.name) newFavs.push(state.favourites[fi]);
+  }
+  state.favourites = newFavs;
     btn.classList.remove('starred');
     toast('Removed from favourites');
   } else {
@@ -1250,7 +1255,18 @@ function toggleFavourite(date, idx, btn) {
 }
 
 function removeFavourite(name) {
-  state.favourites = state.favourites.filter(function(f) { return f.name !== name; });
+  var newFavs = [];
+  var i;
+  for (i = 0; i < state.favourites.length; i++) {
+    if (state.favourites[i].name !== name) newFavs.push(state.favourites[i]);
+  }
+  state.favourites = newFavs;
+  save();
+  renderRecentFoods();
+}
+
+function removeFavouriteByIndex(idx) {
+  state.favourites.splice(idx, 1);
   save();
   renderRecentFoods();
 }
@@ -1276,7 +1292,7 @@ function renderRecentFoods() {
         '<div class="log-item-macros">' + (fav.prot || 0) + 'g protein</div>' +
         '</div>' +
         '<div class="log-item-cals" style="cursor:pointer" onclick="relogFood(' + fidx + ')">' + fmt(fav.cals) + ' kcal</div>' +
-        '<button class="log-item-del" onclick="removeFavourite('' + fav.name.replace(/'/g, "\'") + '')" title="Remove favourite" style="color:var(--amber)">&#9733;</button>' +
+        '<button class="log-item-del" onclick="removeFavouriteByIndex(' + fi + ')" title="Remove favourite" style="color:var(--amber)">&#9733;</button>' +
         '</div>';
     }
   }
