@@ -6,6 +6,7 @@
 <title>Gains Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js"></script>
 <style>
   :root {
     --bg: #0e0f11;
@@ -208,6 +209,7 @@
     <div class="log-tabs">
       <div class="log-tab active" onclick="switchLogTab('text')">✏️ Describe Food</div>
       <div class="log-tab" onclick="switchLogTab('photo')">📷 Photo</div>
+      <div class="log-tab" onclick="switchLogTab('barcode')">&#x25A6; Barcode</div>
       <div class="log-tab" onclick="switchLogTab('manual')">🔢 Manual Entry</div>
     </div>
     <div class="log-content">
@@ -235,6 +237,38 @@
           <button class="btn btn-ghost" onclick="clearPhoto()">Clear</button>
         </div>
         <div id="photo-status"></div>
+      </div>
+      <!-- BARCODE TAB -->
+      <div class="log-panel" id="panel-barcode">
+        <div id="barcode-scanner-wrap" style="display:none">
+          <video id="barcode-video" style="width:100%;border-radius:12px;background:#000" playsinline></video>
+          <div style="text-align:center;margin-top:10px">
+            <button class="btn btn-ghost" onclick="stopBarcodeScanner()">Cancel</button>
+          </div>
+        </div>
+        <div id="barcode-manual-wrap">
+          <div style="font-size:13px;color:var(--text2);margin-bottom:14px">Scan a product barcode with your camera, or type the barcode number manually.</div>
+          <div style="display:flex;gap:10px;margin-bottom:12px">
+            <input type="number" id="barcode-input" placeholder="e.g. 5000168202663" style="flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:var(--mono);font-size:14px;outline:none">
+            <button class="btn btn-primary" onclick="lookupBarcode()">Look up</button>
+          </div>
+          <button class="btn btn-ghost" onclick="startBarcodeScanner()" style="width:100%;justify-content:center;margin-bottom:12px">&#x25A6; Scan with camera</button>
+        </div>
+        <div id="barcode-result" style="display:none">
+          <div class="card-sm" style="margin-bottom:12px">
+            <div id="barcode-product-name" style="font-size:15px;font-weight:500;color:var(--text);margin-bottom:8px"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+              <div class="form-group"><div class="form-label">Serving size (g)</div><input type="number" id="barcode-serving" placeholder="100" style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:var(--mono);font-size:14px;outline:none;width:100%" onchange="updateBarcodeCalcs()"></div>
+              <div class="form-group"><div class="form-label">Calories</div><input type="number" id="barcode-cals-input" style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:var(--mono);font-size:14px;outline:none;width:100%"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+              <div class="form-group"><div class="form-label">Protein (g)</div><input type="number" id="barcode-prot-input" style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:var(--mono);font-size:14px;outline:none;width:100%"></div>
+              <div id="barcode-per100" style="font-size:11px;color:var(--text3);align-self:flex-end;padding-bottom:10px"></div>
+            </div>
+            <button class="btn btn-primary" onclick="logFromBarcode()" style="width:100%;justify-content:center">Log this food</button>
+          </div>
+        </div>
+        <div id="barcode-status"></div>
       </div>
       <!-- MANUAL TAB -->
       <div class="log-panel" id="panel-manual">
@@ -1099,6 +1133,100 @@ function renderCorrelations(nutritionDays, bodyDays) {
   var protOk = avgProt >= state.goals.prot;
   html += '<div class="stat-row"><span class="stat-label">Avg protein</span><span class="stat-val ' + (protOk ? 'up' : 'down') + '">' + fmt(avgProt) + 'g ' + (protOk ? '&#10003; on target' : '&#8595; below target') + '</span></div>';
   el.innerHTML = html;
+}
+
+// ============ BARCODE SCANNER ============
+var barcodeReader = null;
+var barcodeStream = null;
+var barcodePer100 = { cals: 0, prot: 0 };
+
+function startBarcodeScanner() {
+  var wrap = document.getElementById('barcode-scanner-wrap');
+  var manualWrap = document.getElementById('barcode-manual-wrap');
+  wrap.style.display = 'block';
+  manualWrap.style.display = 'none';
+
+  var video = document.getElementById('barcode-video');
+  var hints = new Map();
+
+  try {
+    barcodeReader = new ZXing.BrowserMultiFormatReader();
+    barcodeReader.decodeFromVideoDevice(null, 'barcode-video', function(result, err) {
+      if (result) {
+        stopBarcodeScanner();
+        document.getElementById('barcode-input').value = result.getText();
+        lookupBarcode();
+      }
+    });
+  } catch(e) {
+    stopBarcodeScanner();
+    toast('Camera scanner not available — type the barcode number instead');
+  }
+}
+
+function stopBarcodeScanner() {
+  if (barcodeReader) {
+    try { barcodeReader.reset(); } catch(e) {}
+    barcodeReader = null;
+  }
+  document.getElementById('barcode-scanner-wrap').style.display = 'none';
+  document.getElementById('barcode-manual-wrap').style.display = 'block';
+}
+
+function lookupBarcode() {
+  var barcode = document.getElementById('barcode-input').value.trim();
+  if (!barcode) { toast('Enter a barcode number'); return; }
+  var statusEl = document.getElementById('barcode-status');
+  var resultEl = document.getElementById('barcode-result');
+  resultEl.style.display = 'none';
+  statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Looking up product...</div>';
+
+  fetch('https://world.openfoodfacts.org/api/v0/product/' + barcode + '.json')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      statusEl.innerHTML = '';
+      if (data.status !== 1 || !data.product) {
+        statusEl.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Product not found — try typing the barcode from the back of the packaging</div>';
+        return;
+      }
+      var p = data.product;
+      var name = p.product_name || p.abbreviated_product_name || 'Unknown product';
+      var nutriments = p.nutriments || {};
+      var cals100 = Math.round(nutriments['energy-kcal_100g'] || nutriments['energy-kcal'] || 0);
+      var prot100 = Math.round((nutriments['proteins_100g'] || nutriments['proteins'] || 0) * 10) / 10;
+      var serving = Math.round(parseFloat(p.serving_size) || 100);
+
+      barcodePer100 = { cals: cals100, prot: prot100 };
+
+      document.getElementById('barcode-product-name').textContent = name;
+      document.getElementById('barcode-serving').value = serving;
+      document.getElementById('barcode-per100').textContent = 'Per 100g: ' + cals100 + ' kcal / ' + prot100 + 'g protein';
+      updateBarcodeCalcs();
+      resultEl.style.display = 'block';
+    })
+    .catch(function() {
+      statusEl.innerHTML = '<div class="ai-status" style="border-color:rgba(232,92,92,0.3);background:rgba(232,92,92,0.08);color:var(--red)">Could not reach Open Food Facts — check your connection</div>';
+    });
+}
+
+function updateBarcodeCalcs() {
+  var serving = parseFloat(document.getElementById('barcode-serving').value) || 100;
+  var cals = Math.round(barcodePer100.cals * serving / 100);
+  var prot = Math.round(barcodePer100.prot * serving / 100 * 10) / 10;
+  document.getElementById('barcode-cals-input').value = cals;
+  document.getElementById('barcode-prot-input').value = prot;
+}
+
+function logFromBarcode() {
+  var name = document.getElementById('barcode-product-name').textContent;
+  var cals = parseFloat(document.getElementById('barcode-cals-input').value) || 0;
+  var prot = parseFloat(document.getElementById('barcode-prot-input').value) || 0;
+  var serving = document.getElementById('barcode-serving').value;
+  if (!cals) { toast('No calorie data found — enter manually'); return; }
+  addEntry({ name: name + ' (' + serving + 'g)', cals: cals, prot: prot, carbs: 0, fat: 0 });
+  document.getElementById('barcode-result').style.display = 'none';
+  document.getElementById('barcode-input').value = '';
+  document.getElementById('barcode-status').innerHTML = '';
 }
 
 // ============ GITHUB TOKEN SETUP ============
