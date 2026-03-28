@@ -457,7 +457,7 @@ async function githubRead() {
     if (resp.status === 404) return null; // file doesn't exist yet, that's fine
     if (!resp.ok) throw new Error(`GitHub read failed: ${resp.status}`);
     const data = await resp.json();
-    const decoded = JSON.parse(atob(data.content.split('\n').join('')));
+    const decoded = JSON.parse(atob(data.content.split('\n').join('').split('\r').join('')));
     return { data: decoded, sha: data.sha };
   } catch(e) {
     console.warn('GitHub read error:', e.message);
@@ -742,7 +742,7 @@ async function callClaude(system, user) {
 
 function parseJSON(text) {
   try {
-    const clean = text.replace(/```json|```/g, '').trim();
+    const clean = text.split('```json').join('').split('```').join('').trim();
     const match = clean.match(/\[[\s\S]*\]/);
     return match ? JSON.parse(match[0]) : null;
   } catch(e) { return null; }
