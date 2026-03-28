@@ -317,14 +317,12 @@
       </div>
     </div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
-      The Python sync script writes your Withings data to <span style="font-family:var(--mono);font-size:12px;color:var(--accent2);background:rgba(124,110,244,0.1);padding:2px 6px;border-radius:4px">OneDrive/Apps/MacrosTracker/withings.json</span>. Load that file here to import all your measurements.
+      The Withings sync script writes your body data to your private <span style="font-family:var(--mono);font-size:12px;color:var(--accent2);background:rgba(124,110,244,0.1);padding:2px 6px;border-radius:4px">gains-data</span> repo automatically each night. It loads here when you open the app.
     </div>
-    <div style="display:flex;gap:10px;align-items:center">
-      <label class="btn btn-primary" style="cursor:pointer">
-        Load withings.json
-        <input type="file" accept=".json" onchange="loadWithingsFile(this)" style="display:none">
-      </label>
-      <span id="withings-load-status" style="font-size:13px;color:var(--text3)"></span>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="withings-dot" id="withings-dot"></div>
+      <span id="withings-load-status" style="font-size:13px;color:var(--text3)">Loading from GitHub...</span>
+      <button class="btn btn-ghost" onclick="syncWithings().then(function(){ renderBodyHistory(); })">Refresh now</button>
     </div>
     <div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text3);line-height:1.7">
       Once the sync script is running, you only need to load the file again when you want to refresh. The script updates it automatically each morning.
@@ -433,6 +431,7 @@ var GITHUB_USER = 'jainomics';
 var GITHUB_REPO = 'gains-data';
 var GITHUB_FILE = 'food_logs.json';
 var GITHUB_API = 'https://api.github.com/repos/jainomics/gains-data/contents/food_logs.json';
+var WITHINGS_API = 'https://api.github.com/repos/jainomics/gains-data/contents/withings.json';
 
 // ============ PERSISTENCE ============
 function saveLocal() {
@@ -510,6 +509,51 @@ function githubWrite(payload, sha) {
   }).catch(function(e) {
     console.warn('GitHub write:', e.message);
     return false;
+  });
+}
+
+function syncWithings() {
+  var token = getToken();
+  if (!token) return Promise.resolve();
+  return fetch(WITHINGS_API, {
+    headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' }
+  }).then(function(resp) {
+    if (resp.status === 404) return null;
+    if (!resp.ok) return null;
+    return resp.json();
+  }).then(function(data) {
+    if (!data) return;
+    var raw = data.content;
+    var cleaned = '';
+    for (var i = 0; i < raw.length; i++) {
+      var ch = raw.charCodeAt(i);
+      if (ch !== 10 && ch !== 13 && ch !== 32) cleaned += raw[i];
+    }
+    var decoded = JSON.parse(atob(cleaned));
+    var measurements = decoded.measurements || [];
+    if (!measurements.length) return;
+    var bodyMap = {};
+    var i;
+    for (i = 0; i < state.body.length; i++) bodyMap[state.body[i].date] = state.body[i];
+    for (i = 0; i < measurements.length; i++) {
+      var m = measurements[i];
+      if (m.weight || m.fat) bodyMap[m.date] = { date: m.date, weight: m.weight, fat: m.fat };
+    }
+    var merged = [];
+    var k;
+    for (k in bodyMap) merged.push(bodyMap[k]);
+    merged.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    state.body = merged;
+    saveLocal();
+    var dot = document.getElementById('withings-dot');
+    if (dot) dot.classList.add('connected');
+    var label = document.getElementById('withings-label');
+    if (label) label.textContent = 'Synced';
+    var status = document.getElementById('withings-load-status');
+    if (status) status.textContent = measurements.length + ' measurements loaded';
+    log('Withings: loaded ' + measurements.length + ' measurements');
+  }).catch(function(e) {
+    console.warn('Withings sync error:', e.message);
   });
 }
 
@@ -1083,7 +1127,11 @@ var savedToken = localStorage.getItem('gh_token');
 if (savedToken) {
   state.github = { token: savedToken, configured: true };
   updateSyncStatus('syncing');
-  syncToGitHub();
+  syncToGitHub().then(function() {
+    syncWithings().then(function() {
+      renderBodyHistory();
+    });
+  });
 } else {
   updateSyncStatus('offline');
 }
