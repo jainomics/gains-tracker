@@ -805,18 +805,30 @@ function syncToGitHub() {
       }
       // Otherwise keep local as-is
     }
-    // Merge favourites — union of local + remote, but skip anything in favouriteRemovals.
-    // favouriteRemovals records names this device explicitly unfavourited, so remote can't restore them.
-    // If re-favourited later, it's removed from favouriteRemovals and comes back normally.
+    // Merge favourites across devices:
+    // 1. Merge both removal lists first — a removal on either device is honoured everywhere
+    // 2. Union both favourite lists, skipping anything in the merged removals
+    // 3. If re-favourited later, it is removed from favouriteRemovals so it can come back
     var remoteFavs = (remote && remote.data && remote.data.favourites) ? remote.data.favourites : [];
+    var remoteFavRemovals = (remote && remote.data && remote.data.favouriteRemovals) ? remote.data.favouriteRemovals : {};
     var fi;
     if (!state.favouriteRemovals) state.favouriteRemovals = {};
+    // Merge removal lists — union of both devices
+    var mergedRemovals = {};
+    var rk;
+    for (rk in state.favouriteRemovals) mergedRemovals[rk] = true;
+    for (rk in remoteFavRemovals) mergedRemovals[rk] = true;
+    state.favouriteRemovals = mergedRemovals;
+    // Union favourites from both devices, filtering out anything removed
     var favMap = {};
-    for (fi = 0; fi < state.favourites.length; fi++) favMap[state.favourites[fi].name] = state.favourites[fi];
+    for (fi = 0; fi < state.favourites.length; fi++) {
+      if (!mergedRemovals[state.favourites[fi].name]) {
+        favMap[state.favourites[fi].name] = state.favourites[fi];
+      }
+    }
     for (fi = 0; fi < remoteFavs.length; fi++) {
       var rfName = remoteFavs[fi].name;
-      // Only pull in remote if not already present and not explicitly removed on this device
-      if (!favMap[rfName] && !state.favouriteRemovals[rfName]) {
+      if (!favMap[rfName] && !mergedRemovals[rfName]) {
         favMap[rfName] = remoteFavs[fi];
       }
     }
