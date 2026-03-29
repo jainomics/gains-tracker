@@ -676,6 +676,7 @@ var trendChart = null, bodyChart = null, pieChart = null;
 var currentPeriod = 7;
 var photoBase64 = null;
 var githubSyncing = false;
+var syncPending = false;  // a change arrived while sync was in flight
 var saveTimer = null;
 var viewDate = '';  // date currently shown on Today page (YYYY-MM-DD)
 
@@ -814,8 +815,14 @@ function syncWithings() {
 }
 
 function syncToGitHub() {
-  if (githubSyncing || !getToken()) return Promise.resolve();
+  if (!getToken()) return Promise.resolve();
+  if (githubSyncing) {
+    // A sync is already running — flag that we need another one when it finishes
+    syncPending = true;
+    return Promise.resolve();
+  }
   githubSyncing = true;
+  syncPending = false;
   updateSyncStatus('syncing');
   return githubRead().then(function(remote) {
     var remoteLogs = (remote && remote.data && remote.data.logs) ? remote.data.logs : {};
@@ -898,19 +905,22 @@ function syncToGitHub() {
     var payload = { last_synced: new Date().toISOString(), logs: state.logs, body: state.body, goals: state.goals, deletions: state.deletions || {}, favourites: state.favourites || [], favouriteRemovals: state.favouriteRemovals || {} };
     return githubWrite(payload, sha);
   }).then(function(ok) {
+    githubSyncing = false;
     updateSyncStatus(ok ? 'synced' : 'error');
     if (ok) {
       updateTodayDisplay();
-      // Refresh Quick Log panel if it's currently visible so favourites appear
       var recentPanel = document.getElementById('panel-recent');
       if (recentPanel && recentPanel.className.indexOf('active') !== -1) {
         renderRecentFoods();
       }
     }
-    githubSyncing = false;
+    // If a change came in while we were syncing, sync again now
+    if (syncPending) { syncPending = false; syncToGitHub(); }
   }).catch(function() {
-    updateSyncStatus('error');
     githubSyncing = false;
+    updateSyncStatus('error');
+    // Retry pending changes even after error
+    if (syncPending) { syncPending = false; syncToGitHub(); }
   });
 }
 
@@ -1003,12 +1013,12 @@ function renderTodayLog() {
 
 function deleteEntry(date, idx) {
   state.logs[date].splice(idx, 1);
-  // Track this deletion so sync doesn't restore it from remote
   if (!state.deletions) state.deletions = {};
   state.deletions[date] = (state.deletions[date] || 0) + 1;
   saveLocal();
   updateTodayDisplay();
-  // Sync immediately so deletion propagates before any re-fetch
+  // Sync immediately (cancels any debounce timer, goes straight through queue)
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   syncToGitHub();
 }
 
@@ -1546,6 +1556,8 @@ function removeFavourite(name) {
 }
 
 function removeFavouriteByIndex(idx) {
+  if (!state.favouriteRemovals) state.favouriteRemovals = {};
+  state.favouriteRemovals[state.favourites[idx].name] = true;
   state.favourites.splice(idx, 1);
   save();
   renderRecentFoods();
