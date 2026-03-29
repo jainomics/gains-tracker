@@ -288,6 +288,29 @@
   .corr-neg { background: var(--red-subtle); color: var(--red); }
   .corr-neu { background: var(--bg3); color: var(--text3); }
 
+  /* DATE NAV */
+  .date-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px; gap: 8px;
+  }
+  .date-nav-btn {
+    background: none; border: 0.5px solid var(--border2); border-radius: var(--r-md);
+    color: var(--text3); font-size: 16px; line-height: 1;
+    width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: color 0.1s, border-color 0.1s; flex-shrink: 0;
+  }
+  .date-nav-btn:hover { color: var(--text); border-color: var(--border3); }
+  .date-nav-btn:disabled { opacity: 0.25; cursor: default; }
+  .date-nav-center { flex: 1; text-align: center; cursor: pointer; }
+  .date-nav-label { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text); }
+  .date-nav-sub { font-size: 10px; color: var(--text3); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 1px; }
+  .date-nav-today { font-size: 11px; color: var(--accent); cursor: pointer; padding: 4px 10px;
+    border: 0.5px solid rgba(94,106,210,0.3); border-radius: var(--r-md);
+    background: var(--accent-subtle); white-space: nowrap; flex-shrink: 0;
+  }
+  .date-nav-today:hover { background: rgba(94,106,210,0.2); }
+  .date-nav-today.hidden { visibility: hidden; pointer-events: none; }
+
   /* STARS & QUICK LOG */
   .log-item-star { background: none; border: none; color: var(--text4); cursor: pointer; font-size: 14px; padding: 4px 2px; transition: color 0.1s; line-height: 1; }
   .log-item-star.starred { color: var(--amber); }
@@ -450,7 +473,16 @@
     </div>
   </div>
 
-  <div class="section-title">Today's Log</div>
+  <div class="date-nav">
+    <button class="date-nav-btn" id="date-prev" onclick="shiftDate(-1)" title="Previous day">&#8592;</button>
+    <div class="date-nav-center" onclick="pickDate()">
+      <div class="date-nav-label" id="date-nav-label"></div>
+      <div class="date-nav-sub" id="date-nav-sub"></div>
+    </div>
+    <button class="date-nav-btn" id="date-next" onclick="shiftDate(1)" title="Next day">&#8594;</button>
+    <span class="date-nav-today hidden" id="date-today-btn" onclick="goToToday()">Today</span>
+  </div>
+  <input type="date" id="date-picker-input" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px" onchange="onDatePicked()">
   <div id="today-log-list" class="log-list">
     <div class="log-empty">No entries yet — log your first meal above</div>
   </div>
@@ -645,6 +677,7 @@ var currentPeriod = 7;
 var photoBase64 = null;
 var githubSyncing = false;
 var saveTimer = null;
+var viewDate = '';  // date currently shown on Today page (YYYY-MM-DD)
 
 // ============ GITHUB CONFIG ============
 var GITHUB_USER = 'jainomics';
@@ -903,7 +936,7 @@ function showPage(id) {
 
 // ============ TODAY PAGE ============
 function updateTodayDisplay() {
-  var d = today();
+  var d = viewDate || today();
   var logs = state.logs[d] || [];
   var cals = 0, prot = 0;
   var i;
@@ -917,10 +950,11 @@ function updateTodayDisplay() {
   document.getElementById('bar-cals').style.width = calPct + '%';
   document.getElementById('bar-prot').style.width = protPct + '%';
   renderTodayLog();
+  updateDateNav();
 }
 
 function renderTodayLog() {
-  var d = today();
+  var d = viewDate || today();
   var logs = state.logs[d] || [];
   var el = document.getElementById('today-log-list');
   if (!logs.length) {
@@ -958,10 +992,15 @@ function deleteEntry(date, idx) {
 }
 
 function addEntry(entry) {
-  var d = today();
+  var d = viewDate || today();
   if (!state.logs[d]) state.logs[d] = [];
-  var now = new Date();
-  entry.time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // Only stamp a time for today — past entries don't need a timestamp
+  if (d === today()) {
+    var now = new Date();
+    entry.time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else {
+    entry.time = '';
+  }
   state.logs[d].push(entry);
   save();
   updateTodayDisplay();
@@ -1693,8 +1732,75 @@ function saveGithubToken() {
   });
 }
 
+// ============ DATE NAVIGATION ============
+function setViewDate(d) {
+  viewDate = d;
+  updateTodayDisplay();
+}
+
+function updateDateNav() {
+  var d = viewDate || today();
+  var t = today();
+  var labelEl = document.getElementById('date-nav-label');
+  var subEl = document.getElementById('date-nav-sub');
+  var nextBtn = document.getElementById('date-next');
+  var todayBtn = document.getElementById('date-today-btn');
+  if (!labelEl) return;
+
+  // Format date as "Fri 28 Mar"
+  var parts = d.split('-');
+  var dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  var formatted = dateObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  labelEl.textContent = formatted;
+
+  // Sub-label
+  var diffMs = new Date(t + 'T00:00:00') - new Date(d + 'T00:00:00');
+  var diffDays = Math.round(diffMs / 86400000);
+  if (diffDays === 0) { subEl.textContent = 'Today'; }
+  else if (diffDays === 1) { subEl.textContent = 'Yesterday'; }
+  else { subEl.textContent = diffDays + ' days ago'; }
+
+  // Disable next button on today
+  nextBtn.disabled = (d >= t);
+
+  // Show/hide "Today" shortcut
+  if (d >= t) { todayBtn.className = 'date-nav-today hidden'; }
+  else { todayBtn.className = 'date-nav-today'; }
+}
+
+function shiftDate(delta) {
+  var d = viewDate || today();
+  var parts = d.split('-');
+  var dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  dateObj.setDate(dateObj.getDate() + delta);
+  var shifted = dateObj.toISOString().split('T')[0];
+  // Don't allow navigating into the future
+  if (shifted > today()) return;
+  setViewDate(shifted);
+}
+
+function goToToday() {
+  setViewDate(today());
+}
+
+function pickDate() {
+  var inp = document.getElementById('date-picker-input');
+  inp.max = today();
+  inp.value = viewDate || today();
+  inp.focus();
+  inp.click();
+}
+
+function onDatePicked() {
+  var inp = document.getElementById('date-picker-input');
+  var val = inp.value;
+  if (!val || val > today()) return;
+  setViewDate(val);
+}
+
 // ============ INIT ============
 load();
+viewDate = today();
 document.getElementById('nav-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 document.getElementById('b-date').value = today();
 
