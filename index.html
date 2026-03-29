@@ -637,7 +637,8 @@ var state = {
   withings: { connected: false },
   github: { token: '', configured: false },
   deletions: {},  // tracks intentional deletes: {date: count}
-  favourites: []   // [{name, cals, prot}]
+  favourites: [],   // [{name, cals, prot}]
+  favouriteRemovals: {}  // {name: true} — names explicitly unfavourited on this device
 };
 var trendChart = null, bodyChart = null, pieChart = null;
 var currentPeriod = 7;
@@ -669,6 +670,7 @@ function loadLocal() {
       if (p.github) state.github = p.github;
       if (p.deletions) state.deletions = p.deletions;
       if (p.favourites) state.favourites = p.favourites;
+      if (p.favouriteRemovals) state.favouriteRemovals = p.favouriteRemovals;
     } catch(e) {}
   } else if (old) {
     try {
@@ -803,14 +805,24 @@ function syncToGitHub() {
       }
       // Otherwise keep local as-is
     }
-    // Merge favourites — combine both, dedupe by name, remote additions win
+    // Merge favourites — union of local + remote, but skip anything in favouriteRemovals.
+    // favouriteRemovals records names this device explicitly unfavourited, so remote can't restore them.
+    // If re-favourited later, it's removed from favouriteRemovals and comes back normally.
     var remoteFavs = (remote && remote.data && remote.data.favourites) ? remote.data.favourites : [];
-    var favMap = {};
     var fi;
+    if (!state.favouriteRemovals) state.favouriteRemovals = {};
+    var favMap = {};
     for (fi = 0; fi < state.favourites.length; fi++) favMap[state.favourites[fi].name] = state.favourites[fi];
-    for (fi = 0; fi < remoteFavs.length; fi++) favMap[remoteFavs[fi].name] = remoteFavs[fi];
+    for (fi = 0; fi < remoteFavs.length; fi++) {
+      var rfName = remoteFavs[fi].name;
+      // Only pull in remote if not already present and not explicitly removed on this device
+      if (!favMap[rfName] && !state.favouriteRemovals[rfName]) {
+        favMap[rfName] = remoteFavs[fi];
+      }
+    }
     state.favourites = [];
-    for (var fk in favMap) state.favourites.push(favMap[fk]);
+    var fk;
+    for (fk in favMap) state.favourites.push(favMap[fk]);
 
     var bodyMap = {};
     var i;
@@ -824,7 +836,7 @@ function syncToGitHub() {
     state.logs = mergedLogs;
     state.body = mergedBody;
     saveLocal();
-    var payload = { last_synced: new Date().toISOString(), logs: state.logs, body: state.body, goals: state.goals, deletions: state.deletions || {}, favourites: state.favourites || [] };
+    var payload = { last_synced: new Date().toISOString(), logs: state.logs, body: state.body, goals: state.goals, deletions: state.deletions || {}, favourites: state.favourites || [], favouriteRemovals: state.favouriteRemovals || {} };
     return githubWrite(payload, sha);
   }).then(function(ok) {
     updateSyncStatus(ok ? 'synced' : 'error');
@@ -1411,19 +1423,22 @@ function isFavourite(name) {
 function toggleFavourite(date, idx, btn) {
   var entry = state.logs[date] && state.logs[date][idx];
   if (!entry) return;
+  if (!state.favouriteRemovals) state.favouriteRemovals = {};
   if (isFavourite(entry.name)) {
-    // Remove from favourites
+    // Remove from favourites — record removal so sync doesn't restore it
     var newFavs = [];
-  var fi;
-  for (fi = 0; fi < state.favourites.length; fi++) {
-    if (state.favourites[fi].name !== entry.name) newFavs.push(state.favourites[fi]);
-  }
-  state.favourites = newFavs;
+    var fi;
+    for (fi = 0; fi < state.favourites.length; fi++) {
+      if (state.favourites[fi].name !== entry.name) newFavs.push(state.favourites[fi]);
+    }
+    state.favourites = newFavs;
+    state.favouriteRemovals[entry.name] = true;
     btn.classList.remove('starred');
     toast('Removed from favourites');
   } else {
-    // Add to favourites
+    // Add to favourites — clear any prior removal record
     state.favourites.push({ name: entry.name, cals: entry.cals, prot: entry.prot || 0 });
+    delete state.favouriteRemovals[entry.name];
     btn.classList.add('starred');
     toast('Added to favourites');
   }
@@ -1439,6 +1454,8 @@ function addFavouriteFromRecent(idx, btn) {
     return;
   }
   state.favourites.push({ name: f.name, cals: f.cals, prot: f.prot || 0 });
+  if (!state.favouriteRemovals) state.favouriteRemovals = {};
+  delete state.favouriteRemovals[f.name];
   btn.classList.add('starred');
   save();
   toast('Added to favourites');
