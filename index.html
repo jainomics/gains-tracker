@@ -823,20 +823,33 @@ function syncToGitHub() {
     var sha = (remote && remote.sha) ? remote.sha : null;
     var mergedLogs = {};
     var k;
-    for (k in state.logs) { mergedLogs[k] = state.logs[k]; }
-    for (k in remoteLogs) {
+    // Collect all dates from both local and remote
+    var allDates = {};
+    for (k in state.logs) allDates[k] = true;
+    for (k in remoteLogs) allDates[k] = true;
+    for (k in allDates) {
+      var localEntries = state.logs[k] || [];
+      var remoteEntries = remoteLogs[k] || [];
       var deletedCount = (state.deletions && state.deletions[k]) ? state.deletions[k] : 0;
       if (deletedCount > 0) {
-        // User explicitly deleted from this date — always keep local version
-        // (if no local entries for this date, keep it empty)
-      } else if (!mergedLogs[k]) {
-        // Date not in local at all — take remote (new data from another device)
-        mergedLogs[k] = remoteLogs[k];
-      } else if (remoteLogs[k].length > mergedLogs[k].length) {
-        // Remote has more entries and no deletions — take remote (another device added something)
-        mergedLogs[k] = remoteLogs[k];
+        // User explicitly deleted on this date — local is authoritative, don't pull remote
+        mergedLogs[k] = localEntries;
+      } else {
+        // Union entries from both devices, dedupe by name+cals combination
+        // This handles the case where each device logged different things on the same day
+        var seen = {};
+        var combined = [];
+        var ei;
+        for (ei = 0; ei < localEntries.length; ei++) {
+          var key = localEntries[ei].name + '|' + localEntries[ei].cals;
+          if (!seen[key]) { seen[key] = true; combined.push(localEntries[ei]); }
+        }
+        for (ei = 0; ei < remoteEntries.length; ei++) {
+          var rkey = remoteEntries[ei].name + '|' + remoteEntries[ei].cals;
+          if (!seen[rkey]) { seen[rkey] = true; combined.push(remoteEntries[ei]); }
+        }
+        mergedLogs[k] = combined;
       }
-      // Otherwise keep local as-is
     }
     // Merge favourites across devices:
     // 1. Merge both removal lists first — a removal on either device is honoured everywhere
@@ -846,6 +859,7 @@ function syncToGitHub() {
     var remoteFavRemovals = (remote && remote.data && remote.data.favouriteRemovals) ? remote.data.favouriteRemovals : {};
     var fi;
     if (!state.favouriteRemovals) state.favouriteRemovals = {};
+    if (!state.favourites) state.favourites = [];
     // Merge removal lists — union of both devices
     var mergedRemovals = {};
     var rk;
@@ -885,7 +899,14 @@ function syncToGitHub() {
     return githubWrite(payload, sha);
   }).then(function(ok) {
     updateSyncStatus(ok ? 'synced' : 'error');
-    if (ok) updateTodayDisplay();
+    if (ok) {
+      updateTodayDisplay();
+      // Refresh Quick Log panel if it's currently visible so favourites appear
+      var recentPanel = document.getElementById('panel-recent');
+      if (recentPanel && recentPanel.className.indexOf('active') !== -1) {
+        renderRecentFoods();
+      }
+    }
     githubSyncing = false;
   }).catch(function() {
     updateSyncStatus('error');
@@ -1818,6 +1839,7 @@ if (localStorage.getItem('worker_secret')) {
 var savedToken = localStorage.getItem('gh_token');
 if (savedToken) {
   state.github = { token: savedToken, configured: true };
+  githubSyncing = false;  // ensure clean state on every load
   updateSyncStatus('syncing');
   syncToGitHub().then(function() {
     syncWithings().then(function() {
