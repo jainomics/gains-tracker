@@ -814,95 +814,117 @@ function syncWithings() {
   });
 }
 
+// Pull GitHub → overwrite local state → render. Used on load only.
+function pullFromGitHub() {
+  if (!getToken()) return Promise.resolve();
+  updateSyncStatus('syncing');
+  return githubRead().then(function(remote) {
+    if (!remote) { updateSyncStatus('error'); return; }
+    var d = remote.data;
+    if (d.logs) state.logs = d.logs;
+    if (d.body) state.body = d.body;
+    if (d.goals) state.goals = d.goals;
+    if (d.favourites) state.favourites = d.favourites;
+    if (d.favouriteRemovals) state.favouriteRemovals = d.favouriteRemovals;
+    if (d.deletions) state.deletions = d.deletions;
+    saveLocal();
+    updateTodayDisplay();
+    var recentPanel = document.getElementById('panel-recent');
+    if (recentPanel && recentPanel.className.indexOf('active') !== -1) renderRecentFoods();
+    renderBodyHistory();
+    updateSyncStatus('synced');
+  }).catch(function() { updateSyncStatus('error'); });
+}
+
+// Push local state → GitHub. Queues if a write is already in flight.
 function syncToGitHub() {
   if (!getToken()) return Promise.resolve();
   if (githubSyncing) {
-    // A sync is already running — flag that we need another one when it finishes
     syncPending = true;
     return Promise.resolve();
   }
   githubSyncing = true;
   syncPending = false;
   updateSyncStatus('syncing');
+  // Read current SHA first (required for GitHub PUT), then write full local state
   return githubRead().then(function(remote) {
-    var remoteLogs = (remote && remote.data && remote.data.logs) ? remote.data.logs : {};
-    var remoteBody = (remote && remote.data && remote.data.body) ? remote.data.body : [];
     var sha = (remote && remote.sha) ? remote.sha : null;
-    var mergedLogs = {};
-    var k;
-    // Collect all dates from both local and remote
-    var allDates = {};
-    for (k in state.logs) allDates[k] = true;
-    for (k in remoteLogs) allDates[k] = true;
-    for (k in allDates) {
-      var localEntries = state.logs[k] || [];
-      var remoteEntries = remoteLogs[k] || [];
-      var deletedCount = (state.deletions && state.deletions[k]) ? state.deletions[k] : 0;
-      if (deletedCount > 0) {
-        // User explicitly deleted on this date — local is authoritative, don't pull remote
-        mergedLogs[k] = localEntries;
-      } else {
-        // Union entries from both devices, dedupe by name+cals combination
-        // This handles the case where each device logged different things on the same day
+    // If another device wrote since we last pulled, merge their new entries in
+    // before overwriting — so we don't clobber food logged on the other device
+    if (remote && remote.data) {
+      var rd = remote.data;
+      // Merge food logs: union per day, local deletions win
+      var k;
+      for (k in rd.logs) {
+        var deletedCount = (state.deletions && state.deletions[k]) ? state.deletions[k] : 0;
+        if (deletedCount > 0) continue; // local deleted — don't restore
+        var localDay = state.logs[k] || [];
+        var remoteDay = rd.logs[k] || [];
         var seen = {};
-        var combined = [];
         var ei;
-        for (ei = 0; ei < localEntries.length; ei++) {
-          var key = localEntries[ei].name + '|' + localEntries[ei].cals;
-          if (!seen[key]) { seen[key] = true; combined.push(localEntries[ei]); }
+        var combined = [];
+        for (ei = 0; ei < localDay.length; ei++) {
+          var lk = localDay[ei].name + '|' + localDay[ei].cals;
+          if (!seen[lk]) { seen[lk] = true; combined.push(localDay[ei]); }
         }
-        for (ei = 0; ei < remoteEntries.length; ei++) {
-          var rkey = remoteEntries[ei].name + '|' + remoteEntries[ei].cals;
-          if (!seen[rkey]) { seen[rkey] = true; combined.push(remoteEntries[ei]); }
+        for (ei = 0; ei < remoteDay.length; ei++) {
+          var rk2 = remoteDay[ei].name + '|' + remoteDay[ei].cals;
+          if (!seen[rk2]) { seen[rk2] = true; combined.push(remoteDay[ei]); }
         }
-        mergedLogs[k] = combined;
+        state.logs[k] = combined;
       }
-    }
-    // Merge favourites across devices:
-    // 1. Merge both removal lists first — a removal on either device is honoured everywhere
-    // 2. Union both favourite lists, skipping anything in the merged removals
-    // 3. If re-favourited later, it is removed from favouriteRemovals so it can come back
-    var remoteFavs = (remote && remote.data && remote.data.favourites) ? remote.data.favourites : [];
-    var remoteFavRemovals = (remote && remote.data && remote.data.favouriteRemovals) ? remote.data.favouriteRemovals : {};
-    var fi;
-    if (!state.favouriteRemovals) state.favouriteRemovals = {};
-    if (!state.favourites) state.favourites = [];
-    // Merge removal lists — union of both devices
-    var mergedRemovals = {};
-    var rk;
-    for (rk in state.favouriteRemovals) mergedRemovals[rk] = true;
-    for (rk in remoteFavRemovals) mergedRemovals[rk] = true;
-    state.favouriteRemovals = mergedRemovals;
-    // Union favourites from both devices, filtering out anything removed
-    var favMap = {};
-    for (fi = 0; fi < state.favourites.length; fi++) {
-      if (!mergedRemovals[state.favourites[fi].name]) {
-        favMap[state.favourites[fi].name] = state.favourites[fi];
+      // Merge favourites: union, honouring removals from both devices
+      var remoteFavRemovals = rd.favouriteRemovals || {};
+      var fi;
+      if (!state.favouriteRemovals) state.favouriteRemovals = {};
+      // Build a set of names currently in local favourites —
+      // if a name is present here, the user has actively added it and local wins
+      var currentFavNames = {};
+      for (fi = 0; fi < state.favourites.length; fi++) currentFavNames[state.favourites[fi].name] = true;
+      // Absorb remote removals, but only for names NOT currently favourited locally
+      // (if it's in local favourites, the user just re-added it — don't let old remote removal kill it)
+      var rk3;
+      for (rk3 in remoteFavRemovals) {
+        if (!currentFavNames[rk3]) state.favouriteRemovals[rk3] = true;
       }
-    }
-    for (fi = 0; fi < remoteFavs.length; fi++) {
-      var rfName = remoteFavs[fi].name;
-      if (!favMap[rfName] && !mergedRemovals[rfName]) {
-        favMap[rfName] = remoteFavs[fi];
+      // Pull in any favourites from remote that we don't have and haven't removed
+      var remoteFavs = rd.favourites || [];
+      for (fi = 0; fi < remoteFavs.length; fi++) {
+        if (!currentFavNames[remoteFavs[fi].name] && !state.favouriteRemovals[remoteFavs[fi].name]) {
+          state.favourites.push(remoteFavs[fi]);
+          currentFavNames[remoteFavs[fi].name] = true;
+        }
       }
+      // Remove any local favourites that the other device removed (and we haven't re-added)
+      var cleanFavs = [];
+      for (fi = 0; fi < state.favourites.length; fi++) {
+        if (!state.favouriteRemovals[state.favourites[fi].name]) cleanFavs.push(state.favourites[fi]);
+      }
+      state.favourites = cleanFavs;
+      // Merge body measurements
+      var bodyMap = {};
+      var bi;
+      for (bi = 0; bi < state.body.length; bi++) bodyMap[state.body[bi].date] = state.body[bi];
+      var remoteBody = rd.body || [];
+      for (bi = 0; bi < remoteBody.length; bi++) {
+        if (!bodyMap[remoteBody[bi].date]) bodyMap[remoteBody[bi].date] = remoteBody[bi];
+      }
+      var mergedBody = [];
+      var bk;
+      for (bk in bodyMap) mergedBody.push(bodyMap[bk]);
+      mergedBody.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+      state.body = mergedBody;
     }
-    state.favourites = [];
-    var fk;
-    for (fk in favMap) state.favourites.push(favMap[fk]);
-
-    var bodyMap = {};
-    var i;
-    for (i = 0; i < state.body.length; i++) { bodyMap[state.body[i].date] = state.body[i]; }
-    for (i = 0; i < remoteBody.length; i++) {
-      if (!bodyMap[remoteBody[i].date]) bodyMap[remoteBody[i].date] = remoteBody[i];
-    }
-    var mergedBody = [];
-    for (k in bodyMap) { mergedBody.push(bodyMap[k]); }
-    mergedBody.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-    state.logs = mergedLogs;
-    state.body = mergedBody;
     saveLocal();
-    var payload = { last_synced: new Date().toISOString(), logs: state.logs, body: state.body, goals: state.goals, deletions: state.deletions || {}, favourites: state.favourites || [], favouriteRemovals: state.favouriteRemovals || {} };
+    var payload = {
+      last_synced: new Date().toISOString(),
+      logs: state.logs,
+      body: state.body,
+      goals: state.goals,
+      deletions: state.deletions || {},
+      favourites: state.favourites || [],
+      favouriteRemovals: state.favouriteRemovals || {}
+    };
     return githubWrite(payload, sha);
   }).then(function(ok) {
     githubSyncing = false;
@@ -910,16 +932,12 @@ function syncToGitHub() {
     if (ok) {
       updateTodayDisplay();
       var recentPanel = document.getElementById('panel-recent');
-      if (recentPanel && recentPanel.className.indexOf('active') !== -1) {
-        renderRecentFoods();
-      }
+      if (recentPanel && recentPanel.className.indexOf('active') !== -1) renderRecentFoods();
     }
-    // If a change came in while we were syncing, sync again now
     if (syncPending) { syncPending = false; syncToGitHub(); }
   }).catch(function() {
     githubSyncing = false;
     updateSyncStatus('error');
-    // Retry pending changes even after error
     if (syncPending) { syncPending = false; syncToGitHub(); }
   });
 }
@@ -936,7 +954,7 @@ function updateSyncStatus(status) {
 function save() {
   saveLocal();
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(syncToGitHub, 1500);
+  saveTimer = setTimeout(syncToGitHub, 500);
 }
 function load() { loadLocal(); }
 
@@ -1759,8 +1777,7 @@ function saveGithubToken() {
   saveLocal();
   document.getElementById('github-status').textContent = 'Token saved — syncing...';
   document.getElementById('gh-token-input').value = '';
-  syncToGitHub().then(function() {
-    updateTodayDisplay();
+  pullFromGitHub().then(function() {
     document.getElementById('github-status').textContent = 'Connected and synced';
   });
 }
@@ -1851,9 +1868,10 @@ if (localStorage.getItem('worker_secret')) {
 var savedToken = localStorage.getItem('gh_token');
 if (savedToken) {
   state.github = { token: savedToken, configured: true };
-  githubSyncing = false;  // ensure clean state on every load
-  updateSyncStatus('syncing');
-  syncToGitHub().then(function() {
+  githubSyncing = false;
+  syncPending = false;
+  // On load: pull GitHub as source of truth, then sync Withings on top
+  pullFromGitHub().then(function() {
     syncWithings().then(function() {
       renderBodyHistory();
     });
