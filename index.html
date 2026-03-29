@@ -907,6 +907,7 @@ function renderTodayLog() {
   var i;
   for (i = 0; i < logs.length; i++) {
     var l = logs[i];
+    var starred = isFavourite(l.name) ? ' starred' : '';
     html += '<div class="log-item">' +
       '<div class="log-item-info">' +
       '<div class="log-item-name">' + l.name + '</div>' +
@@ -914,6 +915,7 @@ function renderTodayLog() {
       '<div class="log-time">' + (l.time || '') + '</div>' +
       '</div>' +
       '<div class="log-item-cals">' + fmt(l.cals) + ' kcal</div>' +
+      '<button class="log-item-star' + starred + '" onclick="toggleFavourite(\'' + d + '\',' + i + ',this)" title="Favourite">&#9733;</button>' +
       '<button class="log-item-del" onclick="deleteEntry(\'' + d + '\',' + i + ')" title="Delete">&#10005;</button>' +
       '</div>';
   }
@@ -1428,6 +1430,21 @@ function toggleFavourite(date, idx, btn) {
   save();
 }
 
+function addFavouriteFromRecent(idx, btn) {
+  var foods = document.getElementById('recent-foods-list')._foods;
+  if (!foods || !foods[idx]) return;
+  var f = foods[idx];
+  if (isFavourite(f.name)) {
+    toast('Already in favourites');
+    return;
+  }
+  state.favourites.push({ name: f.name, cals: f.cals, prot: f.prot || 0 });
+  btn.classList.add('starred');
+  save();
+  toast('Added to favourites');
+  renderRecentFoods();
+}
+
 function removeFavourite(name) {
   var newFavs = [];
   var i;
@@ -1500,13 +1517,14 @@ function renderRecentFoods() {
       var rf = recentFoods[i];
       var ridx = allFoods.length;
       allFoods.push(rf);
-      html += '<div class="log-item" style="cursor:pointer" onclick="relogFood(' + ridx + ')">' +
-        '<div class="log-item-info">' +
+      html += '<div class="log-item">' +
+        '<div class="log-item-info" style="cursor:pointer" onclick="relogFood(' + ridx + ')">' +
         '<div class="log-item-name">' + rf.name + '</div>' +
         '<div class="log-item-macros">' + (rf.prot || 0) + 'g protein</div>' +
         '</div>' +
-        '<div class="log-item-cals">' + fmt(rf.cals) + ' kcal</div>' +
-        '<div style="font-size:18px;color:var(--text3);padding-left:8px;line-height:1">+</div>' +
+        '<div class="log-item-cals" style="cursor:pointer" onclick="relogFood(' + ridx + ')">' + fmt(rf.cals) + ' kcal</div>' +
+        '<button class="log-item-star" onclick="addFavouriteFromRecent(' + ridx + ',this)" title="Favourite">&#9733;</button>' +
+        '<div style="font-size:18px;color:var(--text3);padding-left:4px;line-height:1;cursor:pointer" onclick="relogFood(' + ridx + ')">+</div>' +
         '</div>';
     }
   }
