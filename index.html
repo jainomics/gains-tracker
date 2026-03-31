@@ -2023,8 +2023,10 @@ function shiftDate(delta) {
   var parts = d.split('-');
   var dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   dateObj.setDate(dateObj.getDate() + delta);
-  var shifted = dateObj.toISOString().split('T')[0];
-  // Don't allow navigating into the future
+  var y = dateObj.getFullYear();
+  var m = dateObj.getMonth() + 1;
+  var dd = dateObj.getDate();
+  var shifted = y + '-' + (m < 10 ? '0' + m : m) + '-' + (dd < 10 ? '0' + dd : dd);  // Don't allow navigating into the future
   if (shifted > today()) return;
   setViewDate(shifted);
 }
