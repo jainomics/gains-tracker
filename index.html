@@ -1038,7 +1038,12 @@ function save() {
 function load() { loadLocal(); }
 
 // ============ UTILS ============
-function today() { return new Date().toISOString().split('T')[0]; }
+function today() {
+  var d = new Date();
+  var m = d.getMonth() + 1;
+  var dd = d.getDate();
+  return d.getFullYear() + '-' + (m < 10 ? '0' + m : m) + '-' + (dd < 10 ? '0' + dd : dd);
+}
 function fmt(n) { return Math.round(n).toLocaleString(); }
 
 function toast(msg, dur) {
