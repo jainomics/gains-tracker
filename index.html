@@ -1038,7 +1038,12 @@ function save() {
 function load() { loadLocal(); }
 
 // ============ UTILS ============
-function today() { return new Date().toISOString().split('T')[0]; }
+function today() {
+  var d = new Date();
+  var m = d.getMonth() + 1;
+  var dd = d.getDate();
+  return d.getFullYear() + '-' + (m < 10 ? '0' + m : m) + '-' + (dd < 10 ? '0' + dd : dd);
+}
 function fmt(n) { return Math.round(n).toLocaleString(); }
 
 function toast(msg, dur) {
@@ -2018,8 +2023,10 @@ function shiftDate(delta) {
   var parts = d.split('-');
   var dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   dateObj.setDate(dateObj.getDate() + delta);
-  var shifted = dateObj.toISOString().split('T')[0];
-  // Don't allow navigating into the future
+  var y = dateObj.getFullYear();
+  var m = dateObj.getMonth() + 1;
+  var dd = dateObj.getDate();
+  var shifted = y + '-' + (m < 10 ? '0' + m : m) + '-' + (dd < 10 ? '0' + dd : dd);  // Don't allow navigating into the future
   if (shifted > today()) return;
   setViewDate(shifted);
 }
