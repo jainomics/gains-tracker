@@ -943,11 +943,11 @@ function syncToGitHub() {
         var ei;
         var combined = [];
         for (ei = 0; ei < localDay.length; ei++) {
-          var lk = localDay[ei].name + '|' + localDay[ei].cals;
+          var lk = localDay[ei].id ? ('id|' + localDay[ei].id) : (localDay[ei].name + '|' + localDay[ei].cals);
           if (!seen[lk]) { seen[lk] = true; combined.push(localDay[ei]); }
         }
         for (ei = 0; ei < remoteDay.length; ei++) {
-          var rk2 = remoteDay[ei].name + '|' + remoteDay[ei].cals;
+          var rk2 = remoteDay[ei].id ? ('id|' + remoteDay[ei].id) : (remoteDay[ei].name + '|' + remoteDay[ei].cals);
           if (!seen[rk2]) { seen[rk2] = true; combined.push(remoteDay[ei]); }
         }
         state.logs[k] = combined;
@@ -1124,6 +1124,15 @@ function deleteEntry(date, idx) {
   syncToGitHub();
 }
 
+function makeEntryId() {
+  var chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  var id = '';
+  for (var ci = 0; ci < 8; ci++) {
+    id += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return id;
+}
+
 function addEntry(entry) {
   var d = viewDate || today();
   if (!state.logs[d]) state.logs[d] = [];
@@ -1134,6 +1143,7 @@ function addEntry(entry) {
   } else {
     entry.time = '';
   }
+  entry.id = makeEntryId();
   state.logs[d].push(entry);
   save();
   updateTodayDisplay();
