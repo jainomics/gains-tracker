@@ -1454,7 +1454,10 @@ function getDaysData(n) {
   for (i = n - 1; i >= 0; i--) {
     var d = new Date();
     d.setDate(d.getDate() - i);
-    var key = d.toISOString().split('T')[0];
+    var dy = d.getFullYear();
+    var dm = d.getMonth() + 1;
+    var dd = d.getDate();
+    var key = dy + '-' + (dm < 10 ? '0' + dm : dm) + '-' + (dd < 10 ? '0' + dd : dd);
     var logs = state.logs[key] || [];
     var cals = 0, prot = 0, j;
     for (j = 0; j < logs.length; j++) { cals += (logs[j].cals || 0); prot += (logs[j].prot || 0); }
@@ -1563,7 +1566,10 @@ function renderSummaryTable() {
   for (i = 0; i < 7; i++) {
     var d = new Date();
     d.setDate(d.getDate() - i);
-    var key = d.toISOString().split('T')[0];
+    var dy = d.getFullYear();
+    var dm = d.getMonth() + 1;
+    var dd = d.getDate();
+    var key = dy + '-' + (dm < 10 ? '0' + dm : dm) + '-' + (dd < 10 ? '0' + dd : dd);
     var logs = state.logs[key] || [];
     var cals = 0, prot = 0, j;
     for (j = 0; j < logs.length; j++) { cals += (logs[j].cals || 0); prot += (logs[j].prot || 0); }
