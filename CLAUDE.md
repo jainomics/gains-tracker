@@ -23,7 +23,7 @@ The user is non-technical — explain concepts clearly, avoid jargon, walk throu
 Browser (Safari 16.6)
   └─ index.html (static, hosted on GitHub Pages)
        ├─ Food logs → GitHub API → gains-data/food_logs.json (private)
-       ├─ AI food analysis → Cloudflare Worker /  → Anthropic API (Claude Sonnet)
+       ├─ AI food analysis → Cloudflare Worker / → Anthropic API (Claude Sonnet)
        ├─ Withings body data → gains-data/withings.json (private, read-only from app)
        ├─ Apple Health data → gains-data/health.json (private, read-only from app)
        └─ Local storage (browser cache — source of truth is always GitHub)
@@ -75,7 +75,7 @@ Mac (cron job, 11:40pm nightly)
   "last_synced": "2026-03-28T23:30:00",
   "logs": {
     "2026-03-28": [
-      { "name": "Chicken breast 200g", "cals": 330, "prot": 62, "time": "12:30" }
+      { "name": "Chicken breast 200g", "cals": 330, "prot": 62, "time": "12:30", "id": "x7k2m9qr" }
     ]
   },
   "body": [
@@ -87,6 +87,8 @@ Mac (cron job, 11:40pm nightly)
   "favouriteRemovals": { "Some food": true }
 }
 ```
+
+**Note:** Each log entry now has an `id` field — an 8-character random alphanumeric string (e.g. `"x7k2m9qr"`) generated at log time. Old entries without an `id` are still handled correctly — they fall back to `name|cals` dedup. New entries always have an `id`.
 
 ### health.json
 ```json
@@ -117,7 +119,7 @@ Reads GitHub and overwrites local state entirely. No merge — GitHub wins. Loca
 
 **Food log merge rules (per date):**
 - If local has a deletion recorded for that date → local wins entirely, remote not pulled in
-- Otherwise → union of local and remote entries, deduped by `name|cals` key
+- Otherwise → union of local and remote entries, deduped by `id` if present, falling back to `name|cals` for old entries without an id
 
 **Favourites sync:**
 - Uses `favouriteRemovals` object to record explicit unfavourites
@@ -138,7 +140,7 @@ All logging methods go through a confirm-before-log flow — user always reviews
 5. **Manual Entry** — name, calories, protein
 
 **System prompts (UK-aware):**
-- Text: *"You are a precise UK nutrition analyst. The user is based in the UK. Use UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. When uncertain about portion size, estimate conservatively."*
+- Text: *"You are a precise UK nutrition analyst. The user is based in the UK. Use UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. When uncertain about portion size, estimate conservatively. For branded UK products use their actual nutritional values."*
 - Photo: *"You are a UK nutrition analyst. Identify all food items visible. Use plate size, hand size, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Be conservative when uncertain about portion size."* + optional user hint appended.
 
 Model: `claude-sonnet-4-20250514`
@@ -279,13 +281,14 @@ Linear-inspired design system:
 - **Background:** `#0a0a0a` (near-black, not pure black)
 - **Surface levels:** `#111111`, `#161616`, `#1c1c1c`, `#222222`
 - **Borders:** `0.5px solid rgba(255,255,255,0.06)` — hairlines
-- **Accent:** `#5e6ad2` (Linear's indigo)
+- **Accent:** `#5e6ad2` (Linear's indigo) — CSS var `--accent`
 - **Green:** `#4cc38a`, **Amber:** `#e5a50a`, **Red:** `#e5484d`
 - **Activity colours:** Steps `#f97316` (orange), Active kcal `#ec4899` (pink)
 - **Border radius:** 4px (sm), 6px (md), 8px (lg) — sharp not rounded
 - **Typography:** tight letter-spacing, uppercase tracking on labels, monospace for all numbers
 - **No shadows** — elevation via borders only
 - Chart colours must be hardcoded hex — Chart.js cannot read CSS variables
+- **Note:** `--accent2` is used in some inline styles but is not defined as a CSS variable — it resolves to nothing and is effectively transparent. Avoid using it; use hardcoded hex or `--accent` instead.
 
 ---
 
@@ -303,10 +306,9 @@ Linear-inspired design system:
 **Trends page:**
 - 7-day summary table (always last 7 days, colour-coded vs goals)
 - Period selector: 7d / 30d / 3m / 1y
-- Calories & Protein chart (dual axis)
-- Macro breakdown doughnut
+- 4 stat boxes: Avg daily calories, Avg daily protein, Avg active calories, Total steps (label reads "this week" on 7d, "this period" otherwise)
+- Single combined chart: Calories (left axis, indigo), Steps + Active kcal (right axis, orange and pink)
 - Body composition chart (weight + body fat %)
-- Activity trend chart (steps + active kcal, dual axis)
 - Nutrition ↔ Body insights (recomp scoring)
 
 **Body page:** Withings auto-sync status, manual body measurement entry, measurement history
@@ -317,13 +319,13 @@ Linear-inspired design system:
 
 ## Recomposition scoring (Trends page)
 
-User goal is body recomposition — lose fat while maintaining or gaining muscle. Requires 5+ days food data and 3+ body measurements.
+User goal is body recomposition — lose fat while maintaining or gaining muscle. Requires **5+ days food data and 3+ body measurements** (the placeholder text in the HTML incorrectly says "2 weeks" — the actual threshold in code is 5 days / 3 measurements).
 
-- **Recomp working** — fat dropping, weight stable or up
-- **Cutting** — fat and weight both dropping
-- **Bulking** — fat and weight both rising
-- **Maintaining** — minimal change in both
-- **Mixed signal** — unclear pattern
+- **Recomp working** — fat dropping >0.3%, weight >= -0.5kg
+- **Cutting** — fat dropping, weight also dropping >0.5kg
+- **Bulking** — fat up >0.3%, weight up
+- **Maintaining** — fat change <=0.3%, weight change <=0.5kg
+- **Mixed signal** — anything else
 
 ---
 
@@ -338,6 +340,7 @@ User goal is body recomposition — lose fat while maintaining or gaining muscle
 - **Open Food Facts for barcodes** — free, good UK coverage, no key required
 - **Safari 16.6 support** — hard constraint, drives all JS decisions in index.html
 - **Manual body entry still available** — Withings auto-sync is supplementary
+- **Date keys always use local date parts** — never `toISOString()` which returns UTC and causes date collisions around midnight for UK users
 
 ---
 
