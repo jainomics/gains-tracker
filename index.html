@@ -552,14 +552,15 @@
   </div>
 
   <div class="card" style="margin-top:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <div class="section-title" style="margin-top:0;margin-bottom:0">Calories, Steps & Active kcal</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div class="section-title" style="margin-top:0;margin-bottom:0">Calories & Active kcal (% of target) + Steps</div>
       <div style="display:flex;gap:14px;align-items:center">
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e6ad2"></div><span style="font-size:11px;color:var(--text3)">Calories</span></div>
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e6ad2"></div><span style="font-size:11px;color:var(--text3)">Cals %</span></div>
         <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#f97316"></div><span style="font-size:11px;color:var(--text3)">Steps</span></div>
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#ec4899"></div><span style="font-size:11px;color:var(--text3)">Active kcal</span></div>
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#ec4899"></div><span style="font-size:11px;color:var(--text3)">Active %</span></div>
       </div>
     </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Left axis: ratio vs target (1.0 = 100%). Calories vs goal, active kcal vs 770</div>
     <div id="trend-chart-empty" style="color:var(--text3);font-size:13px;padding:12px 0;display:none">No data yet for this period</div>
     <div class="chart-wrap-tall" id="trend-chart-wrap">
       <canvas id="trend-chart"></canvas>
@@ -570,6 +571,36 @@
     <div class="section-title" style="margin-top:0">Body composition trend</div>
     <div class="chart-wrap-tall">
       <canvas id="body-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div class="section-title" style="margin-top:0;margin-bottom:0">Net calories vs Weight</div>
+      <div style="display:flex;gap:14px;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e6ad2"></div><span style="font-size:11px;color:var(--text3)">Net kcal (30d avg)</span></div>
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e8fd2"></div><span style="font-size:11px;color:var(--text3)">Weight kg</span></div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Net = calories consumed minus active kcal burned, 30-day rolling average</div>
+    <div id="net-weight-empty" style="color:var(--text3);font-size:13px;padding:12px 0">Not enough data yet — need food logs, activity data, and body measurements</div>
+    <div class="chart-wrap-tall" id="net-weight-wrap" style="display:none">
+      <canvas id="net-weight-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div class="section-title" style="margin-top:0;margin-bottom:0">Net calories vs Body fat %</div>
+      <div style="display:flex;gap:14px;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e6ad2"></div><span style="font-size:11px;color:var(--text3)">Net kcal (30d avg)</span></div>
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#e5a50a"></div><span style="font-size:11px;color:var(--text3)">Body fat %</span></div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Net = calories consumed minus active kcal burned, 30-day rolling average</div>
+    <div id="net-fat-empty" style="color:var(--text3);font-size:13px;padding:12px 0">Not enough data yet — need food logs, activity data, and body measurements</div>
+    <div class="chart-wrap-tall" id="net-fat-wrap" style="display:none">
+      <canvas id="net-fat-chart"></canvas>
     </div>
   </div>
 
@@ -715,7 +746,7 @@ var state = {
   moves: {},  // {id: true} — entry ids that have been moved to a different date; blocks resurrection on merge
   health: []  // [{date, steps, activeCals}] from Apple Health via Shortcut
 };
-var trendChart = null, bodyChart = null, healthChart = null;
+var trendChart = null, bodyChart = null, healthChart = null, netWeightChart = null, netFatChart = null;
 var currentPeriod = 7;
 var photoBase64 = null;
 var githubSyncing = false;
@@ -1589,18 +1620,20 @@ function renderTrends() {
   document.getElementById('total-steps-val').textContent = activeDaysCount ? fmt(totalSteps) : '--';
   document.getElementById('total-steps-label').textContent = currentPeriod === 7 ? 'this week' : 'this period';
 
-  // Build combined chart — calories (left axis), steps + active cals (right axis)
-  var labels = [], calData = [], stepsData = [], activeCalsData = [];
+  // Build combined chart — cal ratio + active ratio (left), steps (right)
+  var calGoal = (state.goals && state.goals.cals) ? state.goals.cals : 2000;
+  var activeTarget = 770;
+  var labels = [], calRatioData = [], stepsData = [], activeRatioData = [];
   for (i = 0; i < days.length; i++) {
     labels.push(days[i].label);
-    calData.push(days[i].hasData ? days[i].cals : null);
+    calRatioData.push(days[i].hasData ? Math.round((days[i].cals / calGoal) * 100) / 100 : null);
     var hEntry = hMap[days[i].date] || {};
     stepsData.push(hEntry.steps || null);
-    activeCalsData.push(hEntry.activeCals || null);
+    activeRatioData.push(hEntry.activeCals ? Math.round((hEntry.activeCals / activeTarget) * 100) / 100 : null);
   }
 
   var hasAnyData = false;
-  for (i = 0; i < calData.length; i++) { if (calData[i] !== null || stepsData[i] !== null) { hasAnyData = true; break; } }
+  for (i = 0; i < calRatioData.length; i++) { if (calRatioData[i] !== null || stepsData[i] !== null) { hasAnyData = true; break; } }
   var emptyEl2 = document.getElementById('trend-chart-empty');
   var wrapEl2 = document.getElementById('trend-chart-wrap');
   if (emptyEl2) emptyEl2.style.display = hasAnyData ? 'none' : 'block';
@@ -1610,16 +1643,16 @@ function renderTrends() {
   trendChart = new Chart(document.getElementById('trend-chart'), {
     type: 'line',
     data: { labels: labels, datasets: [
-      { label: 'Calories', data: calData, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#5e6ad2' },
+      { label: 'Calories %', data: calRatioData, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#5e6ad2' },
       { label: 'Steps', data: stepsData, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y2', pointRadius: 3, pointBackgroundColor: '#f97316' },
-      { label: 'Active kcal', data: activeCalsData, borderColor: '#ec4899', backgroundColor: 'rgba(236,72,153,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y2', pointRadius: 3, pointBackgroundColor: '#ec4899' }
+      { label: 'Active %', data: activeRatioData, borderColor: '#ec4899', backgroundColor: 'rgba(236,72,153,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#ec4899' }
     ]},
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#4a4a4a', font: { size: 11 }, maxTicksLimit: 10 } },
-        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5e6ad2', font: { size: 11 } } },
-        y2: { position: 'right', grid: { display: false }, ticks: { color: '#a1a1a1', font: { size: 11 } } }
+        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5e6ad2', font: { size: 11 }, callback: function(v) { return Math.round(v * 100) + '%'; } } },
+        y2: { position: 'right', grid: { display: false }, ticks: { color: '#f97316', font: { size: 11 } } }
       }
     }
   });
@@ -1651,6 +1684,119 @@ function renderTrends() {
         }
       }
     });
+  }
+
+  // ── Net calories charts (cals consumed - active cals burned), 30-day rolling avg vs body ──
+  // Build a daily net map: date -> net cals (only days where both food and health data exist)
+  var netByDate = {};
+  var nd;
+  for (nd in state.logs) {
+    var ndLogs = state.logs[nd] || [];
+    if (!ndLogs.length) continue;
+    var ndCals = 0, nj;
+    for (nj = 0; nj < ndLogs.length; nj++) ndCals += (ndLogs[nj].cals || 0);
+    var ndHealth = hMap[nd];
+    if (ndHealth && ndHealth.activeCals) {
+      netByDate[nd] = ndCals - ndHealth.activeCals;
+    }
+  }
+
+  // For each body measurement, compute 30-day rolling average of net cals ending on that date
+  var netWeightPoints = [], netFatPoints = [];
+  var bi2;
+  for (bi2 = 0; bi2 < bodyInRange.length; bi2++) {
+    var bm = bodyInRange[bi2];
+    var bmDate = new Date(bm.date + 'T00:00:00');
+    var windowStart = new Date(bmDate.getTime());
+    windowStart.setDate(windowStart.getDate() - 29); // 30 days inclusive
+    var netSum = 0, netCount = 0;
+    var wk;
+    for (wk in netByDate) {
+      var wkDate = new Date(wk + 'T00:00:00');
+      if (wkDate >= windowStart && wkDate <= bmDate) {
+        netSum += netByDate[wk];
+        netCount++;
+      }
+    }
+    if (netCount >= 7) { // require at least 7 days of data in the window for the avg to be meaningful
+      var avgNet = Math.round(netSum / netCount);
+      if (bm.weight) netWeightPoints.push({ x: bm.date, net: avgNet, body: bm.weight });
+      if (bm.fat) netFatPoints.push({ x: bm.date, net: avgNet, body: bm.fat });
+    }
+  }
+
+  // Sort both by date
+  netWeightPoints.sort(function(a, b) { return a.x < b.x ? -1 : a.x > b.x ? 1 : 0; });
+  netFatPoints.sort(function(a, b) { return a.x < b.x ? -1 : a.x > b.x ? 1 : 0; });
+
+  // Chart 3: net cals vs weight
+  var nwEmptyEl = document.getElementById('net-weight-empty');
+  var nwWrapEl = document.getElementById('net-weight-wrap');
+  if (netWeightChart) { netWeightChart.destroy(); netWeightChart = null; }
+  if (netWeightPoints.length >= 2) {
+    if (nwEmptyEl) nwEmptyEl.style.display = 'none';
+    if (nwWrapEl) nwWrapEl.style.display = 'block';
+    var nwLabels = [], nwNet = [], nwWeight = [];
+    for (i = 0; i < netWeightPoints.length; i++) {
+      var nwParts = netWeightPoints[i].x.split('-');
+      var nwD = new Date(parseInt(nwParts[0]), parseInt(nwParts[1]) - 1, parseInt(nwParts[2]));
+      nwLabels.push(nwD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+      nwNet.push(netWeightPoints[i].net);
+      nwWeight.push(netWeightPoints[i].body);
+    }
+    netWeightChart = new Chart(document.getElementById('net-weight-chart'), {
+      type: 'line',
+      data: { labels: nwLabels, datasets: [
+        { label: 'Net kcal (30d avg)', data: nwNet, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#5e6ad2', spanGaps: true },
+        { label: 'Weight kg', data: nwWeight, borderColor: '#5e8fd2', backgroundColor: 'rgba(94,143,210,0.06)', tension: 0.3, yAxisID: 'y2', pointRadius: 4, pointBackgroundColor: '#5e8fd2', spanGaps: true }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#4a4a4a', font: { size: 11 }, maxTicksLimit: 10 } },
+          y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5e6ad2', font: { size: 11 } }, title: { display: true, text: 'Net kcal', color: '#5e6ad2', font: { size: 10 } } },
+          y2: { position: 'right', grid: { display: false }, ticks: { color: '#5e8fd2', font: { size: 11 } }, title: { display: true, text: 'kg', color: '#5e8fd2', font: { size: 10 } } }
+        }
+      }
+    });
+  } else {
+    if (nwEmptyEl) nwEmptyEl.style.display = 'block';
+    if (nwWrapEl) nwWrapEl.style.display = 'none';
+  }
+
+  // Chart 4: net cals vs body fat %
+  var nfEmptyEl = document.getElementById('net-fat-empty');
+  var nfWrapEl = document.getElementById('net-fat-wrap');
+  if (netFatChart) { netFatChart.destroy(); netFatChart = null; }
+  if (netFatPoints.length >= 2) {
+    if (nfEmptyEl) nfEmptyEl.style.display = 'none';
+    if (nfWrapEl) nfWrapEl.style.display = 'block';
+    var nfLabels = [], nfNet = [], nfFat = [];
+    for (i = 0; i < netFatPoints.length; i++) {
+      var nfParts = netFatPoints[i].x.split('-');
+      var nfD = new Date(parseInt(nfParts[0]), parseInt(nfParts[1]) - 1, parseInt(nfParts[2]));
+      nfLabels.push(nfD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+      nfNet.push(netFatPoints[i].net);
+      nfFat.push(netFatPoints[i].body);
+    }
+    netFatChart = new Chart(document.getElementById('net-fat-chart'), {
+      type: 'line',
+      data: { labels: nfLabels, datasets: [
+        { label: 'Net kcal (30d avg)', data: nfNet, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#5e6ad2', spanGaps: true },
+        { label: 'Body fat %', data: nfFat, borderColor: '#e5a50a', backgroundColor: 'rgba(229,165,10,0.06)', tension: 0.3, yAxisID: 'y2', pointRadius: 4, pointBackgroundColor: '#e5a50a', spanGaps: true }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#4a4a4a', font: { size: 11 }, maxTicksLimit: 10 } },
+          y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5e6ad2', font: { size: 11 } }, title: { display: true, text: 'Net kcal', color: '#5e6ad2', font: { size: 10 } } },
+          y2: { position: 'right', grid: { display: false }, ticks: { color: '#e5a50a', font: { size: 11 } }, title: { display: true, text: 'Fat %', color: '#e5a50a', font: { size: 10 } } }
+        }
+      }
+    });
+  } else {
+    if (nfEmptyEl) nfEmptyEl.style.display = 'block';
+    if (nfWrapEl) nfWrapEl.style.display = 'none';
   }
 
   renderCorrelations(logged, bodyInRange);
