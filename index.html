@@ -196,6 +196,12 @@
   .log-item-cals { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text2); white-space: nowrap; }
   .log-item-del { background: none; border: none; color: var(--text4); cursor: pointer; font-size: 14px; padding: 4px; border-radius: var(--r-sm); transition: color 0.1s; line-height: 1; }
   .log-item-del:hover { color: var(--red); }
+  .log-item-edit { background: none; border: none; color: var(--text4); cursor: pointer; font-size: 13px; padding: 4px; border-radius: var(--r-sm); transition: color 0.1s; line-height: 1; }
+  .log-item-edit:hover { color: var(--accent); }
+  .edit-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 0.5px solid var(--border); flex-wrap: wrap; }
+  .edit-row:last-child { border-bottom: none; }
+  .edit-name-input { flex: 1; min-width: 120px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--r-sm); padding: 6px 8px; color: var(--text); font-family: var(--sans); font-size: 13px; outline: none; }
+  .edit-num-input { width: 64px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--r-sm); padding: 6px 8px; color: var(--text); font-family: var(--mono); font-size: 12px; text-align: center; outline: none; }
   .log-empty { text-align: center; padding: 32px 20px; color: var(--text4); font-size: 13px; }
   .log-time { font-size: 10px; color: var(--text4); font-family: var(--mono); }
 
@@ -706,6 +712,7 @@ var state = {
   deletions: {},  // tracks intentional deletes: {date: count}
   favourites: [],   // [{name, cals, prot}]
   favouriteRemovals: {},  // {name: true} — names explicitly unfavourited on this device
+  moves: {},  // {id: true} — entry ids that have been moved to a different date; blocks resurrection on merge
   health: []  // [{date, steps, activeCals}] from Apple Health via Shortcut
 };
 var trendChart = null, bodyChart = null, healthChart = null;
@@ -742,6 +749,7 @@ function loadLocal() {
       if (p.deletions) state.deletions = p.deletions;
       if (p.favourites) state.favourites = p.favourites;
       if (p.favouriteRemovals) state.favouriteRemovals = p.favouriteRemovals;
+      if (p.moves) state.moves = p.moves;
       if (p.health) state.health = p.health;
     } catch(e) {}
   } else if (old) {
@@ -864,6 +872,7 @@ function pullFromGitHub() {
     if (d.goals) state.goals = d.goals;
     if (d.favourites) state.favourites = d.favourites;
     if (d.favouriteRemovals) state.favouriteRemovals = d.favouriteRemovals;
+    if (d.moves) state.moves = d.moves;
     if (d.deletions) state.deletions = d.deletions;
     saveLocal();
     updateTodayDisplay();
@@ -943,8 +952,11 @@ function syncToGitHub() {
           if (!seen[lk]) { seen[lk] = true; combined.push(localDay[ei]); }
         }
         for (ei = 0; ei < remoteDay.length; ei++) {
-          var rk2 = remoteDay[ei].id ? ('id|' + remoteDay[ei].id) : (remoteDay[ei].name + '|' + remoteDay[ei].cals);
-          if (!seen[rk2]) { seen[rk2] = true; combined.push(remoteDay[ei]); }
+          var rentry = remoteDay[ei];
+          // Skip if this entry was moved away from this date on the local device
+          if (rentry.id && state.moves && state.moves[rentry.id]) continue;
+          var rk2 = rentry.id ? ('id|' + rentry.id) : (rentry.name + '|' + rentry.cals);
+          if (!seen[rk2]) { seen[rk2] = true; combined.push(rentry); }
         }
         state.logs[k] = combined;
       }
@@ -998,7 +1010,8 @@ function syncToGitHub() {
       goals: state.goals,
       deletions: state.deletions || {},
       favourites: state.favourites || [],
-      favouriteRemovals: state.favouriteRemovals || {}
+      favouriteRemovals: state.favouriteRemovals || {},
+      moves: state.moves || {}
     };
     return githubWrite(payload, sha);
   }).then(function(ok) {
@@ -1102,6 +1115,7 @@ function renderTodayLog() {
       '<div class="log-time">' + (l.time || '') + '</div>' +
       '</div>' +
       '<div class="log-item-cals">' + fmt(l.cals) + ' kcal</div>' +
+      '<button class="log-item-edit" onclick="editEntry(\'' + d + '\',' + i + ')" title="Edit">&#9998;</button>' +
       '<button class="log-item-star' + starred + '" onclick="toggleFavourite(\'' + d + '\',' + i + ',this)" title="Favourite">&#9733;</button>' +
       '<button class="log-item-del" onclick="deleteEntry(\'' + d + '\',' + i + ')" title="Delete">&#10005;</button>' +
       '</div>';
@@ -1118,6 +1132,70 @@ function deleteEntry(date, idx) {
   // Sync immediately (cancels any debounce timer, goes straight through queue)
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   syncToGitHub();
+}
+
+function editEntry(date, idx) {
+  var el = document.getElementById('today-log-list');
+  var items = el.querySelectorAll('.log-item');
+  if (idx >= items.length) return;
+  var l = state.logs[date][idx];
+  var row = items[idx];
+  row.innerHTML =
+    '<div class="edit-row">' +
+    '<input class="edit-name-input" id="edit-name-' + idx + '" type="text" value="' + l.name.replace(/"/g, '&quot;') + '">' +
+    '<input class="edit-num-input" id="edit-cals-' + idx + '" type="number" value="' + (l.cals || 0) + '" placeholder="kcal">' +
+    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">KCAL</span>' +
+    '<input class="edit-num-input" id="edit-prot-' + idx + '" type="number" value="' + (l.prot || 0) + '" placeholder="prot">' +
+    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">PROT</span>' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:8px;padding:6px 0 10px 0">' +
+    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">DATE</span>' +
+    '<input class="edit-num-input" id="edit-date-' + idx + '" type="date" value="' + date + '" max="' + today() + '" style="width:auto;flex:1">' +
+    '<button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="saveEdit('' + date + '',' + idx + ')">Save</button>' +
+    '<button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="updateTodayDisplay()">Cancel</button>' +
+    '</div>';
+  document.getElementById('edit-name-' + idx).focus();
+}
+
+function saveEdit(date, idx) {
+  var nameEl = document.getElementById('edit-name-' + idx);
+  var calsEl = document.getElementById('edit-cals-' + idx);
+  var protEl = document.getElementById('edit-prot-' + idx);
+  var dateEl = document.getElementById('edit-date-' + idx);
+  if (!nameEl || !calsEl || !protEl || !dateEl) return;
+  var name = nameEl.value.trim();
+  var cals = parseInt(calsEl.value) || 0;
+  var prot = parseInt(protEl.value) || 0;
+  var newDate = dateEl.value;
+  if (!name) { nameEl.focus(); return; }
+  if (!newDate) { newDate = date; }
+  // Pull the entry out of the old date
+  var entry = state.logs[date][idx];
+  entry.name = name;
+  entry.cals = cals;
+  entry.prot = prot;
+  if (newDate !== date) {
+    // Moving to a different date — splice quietly (no deletions counter)
+    // Record the id in moves so it can't resurrect on the old date during merge
+    if (entry.id) {
+      if (!state.moves) state.moves = {};
+      state.moves[entry.id] = true;
+    }
+    state.logs[date].splice(idx, 1);
+    if (!state.logs[date].length) delete state.logs[date];
+    if (!state.logs[newDate]) state.logs[newDate] = [];
+    // Clear time when moving to a past date, keep if moving to today
+    if (newDate !== today()) entry.time = '';
+    state.logs[newDate].push(entry);
+    save();
+    updateTodayDisplay();
+    toast('Moved to ' + newDate);
+  } else {
+    state.logs[date][idx] = entry;
+    save();
+    updateTodayDisplay();
+    toast('Updated: ' + name);
+  }
 }
 
 function makeEntryId() {
