@@ -1686,8 +1686,9 @@ function renderTrends() {
     });
   }
 
-  // ── Net calories charts (cals consumed - active cals burned), 30-day rolling avg vs body ──
-  // Build a daily net map: date -> net cals (only days where both food and health data exist)
+  // ── Net calories charts: rolling 30-day avg calculated for every day in period ──
+  // Step 1: build full net map across ALL dates (not just period) so the 30d window
+  // has data to look back into even for the earliest days of the selected period
   var netByDate = {};
   var nd;
   for (nd in state.logs) {
@@ -1701,53 +1702,56 @@ function renderTrends() {
     }
   }
 
-  // For each body measurement, compute 30-day rolling average of net cals ending on that date
-  var netWeightPoints = [], netFatPoints = [];
+  // Build a body map for quick lookup: date -> {weight, fat}
+  var bodyDateMap = {};
   var bi2;
-  for (bi2 = 0; bi2 < bodyInRange.length; bi2++) {
-    var bm = bodyInRange[bi2];
-    var bmDate = new Date(bm.date + 'T00:00:00');
-    var windowStart = new Date(bmDate.getTime());
-    windowStart.setDate(windowStart.getDate() - 29); // 30 days inclusive
+  for (bi2 = 0; bi2 < state.body.length; bi2++) {
+    bodyDateMap[state.body[bi2].date] = state.body[bi2];
+  }
+
+  // Step 2: iterate every day in the selected period, compute 30d rolling avg net,
+  // and look up body measurement for that day (null if no weigh-in)
+  var nwLabels = [], nwNet = [], nwWeight = [];
+  var nfNet = [], nfFat = [];
+  var hasNwData = false, hasNfData = false;
+  for (i = 0; i < days.length; i++) {
+    var dayDate = new Date(days[i].date + 'T00:00:00');
+    var winStart = new Date(dayDate.getTime());
+    winStart.setDate(winStart.getDate() - 29); // 30 days inclusive
     var netSum = 0, netCount = 0;
     var wk;
     for (wk in netByDate) {
       var wkDate = new Date(wk + 'T00:00:00');
-      if (wkDate >= windowStart && wkDate <= bmDate) {
+      if (wkDate >= winStart && wkDate <= dayDate) {
         netSum += netByDate[wk];
         netCount++;
       }
     }
-    if (netCount >= 7) { // require at least 7 days of data in the window for the avg to be meaningful
-      var avgNet = Math.round(netSum / netCount);
-      if (bm.weight) netWeightPoints.push({ x: bm.date, net: avgNet, body: bm.weight });
-      if (bm.fat) netFatPoints.push({ x: bm.date, net: avgNet, body: bm.fat });
-    }
+    // Only plot a net value if at least 7 days of data exist in the window
+    var avgNet = netCount >= 7 ? Math.round(netSum / netCount) : null;
+    var bodyOnDay = bodyDateMap[days[i].date] || null;
+
+    nwLabels.push(days[i].label);
+    nwNet.push(avgNet);
+    nwWeight.push(bodyOnDay && bodyOnDay.weight ? bodyOnDay.weight : null);
+    nfNet.push(avgNet);
+    nfFat.push(bodyOnDay && bodyOnDay.fat ? bodyOnDay.fat : null);
+
+    if (avgNet !== null && bodyOnDay && bodyOnDay.weight) hasNwData = true;
+    if (avgNet !== null && bodyOnDay && bodyOnDay.fat) hasNfData = true;
   }
 
-  // Sort both by date
-  netWeightPoints.sort(function(a, b) { return a.x < b.x ? -1 : a.x > b.x ? 1 : 0; });
-  netFatPoints.sort(function(a, b) { return a.x < b.x ? -1 : a.x > b.x ? 1 : 0; });
-
-  // Chart 3: net cals vs weight
+  // Chart 3: net cals (left) vs weight (right), daily x-axis, body nulls where no weigh-in
   var nwEmptyEl = document.getElementById('net-weight-empty');
   var nwWrapEl = document.getElementById('net-weight-wrap');
   if (netWeightChart) { netWeightChart.destroy(); netWeightChart = null; }
-  if (netWeightPoints.length >= 2) {
+  if (hasNwData) {
     if (nwEmptyEl) nwEmptyEl.style.display = 'none';
     if (nwWrapEl) nwWrapEl.style.display = 'block';
-    var nwLabels = [], nwNet = [], nwWeight = [];
-    for (i = 0; i < netWeightPoints.length; i++) {
-      var nwParts = netWeightPoints[i].x.split('-');
-      var nwD = new Date(parseInt(nwParts[0]), parseInt(nwParts[1]) - 1, parseInt(nwParts[2]));
-      nwLabels.push(nwD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
-      nwNet.push(netWeightPoints[i].net);
-      nwWeight.push(netWeightPoints[i].body);
-    }
     netWeightChart = new Chart(document.getElementById('net-weight-chart'), {
       type: 'line',
       data: { labels: nwLabels, datasets: [
-        { label: 'Net kcal (30d avg)', data: nwNet, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#5e6ad2', spanGaps: true },
+        { label: 'Net kcal (30d avg)', data: nwNet, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, yAxisID: 'y', pointRadius: 2, pointBackgroundColor: '#5e6ad2', spanGaps: true },
         { label: 'Weight kg', data: nwWeight, borderColor: '#5e8fd2', backgroundColor: 'rgba(94,143,210,0.06)', tension: 0.3, yAxisID: 'y2', pointRadius: 4, pointBackgroundColor: '#5e8fd2', spanGaps: true }
       ]},
       options: { responsive: true, maintainAspectRatio: false,
@@ -1764,25 +1768,17 @@ function renderTrends() {
     if (nwWrapEl) nwWrapEl.style.display = 'none';
   }
 
-  // Chart 4: net cals vs body fat %
+  // Chart 4: net cals (left) vs body fat % (right)
   var nfEmptyEl = document.getElementById('net-fat-empty');
   var nfWrapEl = document.getElementById('net-fat-wrap');
   if (netFatChart) { netFatChart.destroy(); netFatChart = null; }
-  if (netFatPoints.length >= 2) {
+  if (hasNfData) {
     if (nfEmptyEl) nfEmptyEl.style.display = 'none';
     if (nfWrapEl) nfWrapEl.style.display = 'block';
-    var nfLabels = [], nfNet = [], nfFat = [];
-    for (i = 0; i < netFatPoints.length; i++) {
-      var nfParts = netFatPoints[i].x.split('-');
-      var nfD = new Date(parseInt(nfParts[0]), parseInt(nfParts[1]) - 1, parseInt(nfParts[2]));
-      nfLabels.push(nfD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
-      nfNet.push(netFatPoints[i].net);
-      nfFat.push(netFatPoints[i].body);
-    }
     netFatChart = new Chart(document.getElementById('net-fat-chart'), {
       type: 'line',
-      data: { labels: nfLabels, datasets: [
-        { label: 'Net kcal (30d avg)', data: nfNet, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#5e6ad2', spanGaps: true },
+      data: { labels: nwLabels, datasets: [
+        { label: 'Net kcal (30d avg)', data: nfNet, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, yAxisID: 'y', pointRadius: 2, pointBackgroundColor: '#5e6ad2', spanGaps: true },
         { label: 'Body fat %', data: nfFat, borderColor: '#e5a50a', backgroundColor: 'rgba(229,165,10,0.06)', tension: 0.3, yAxisID: 'y2', pointRadius: 4, pointBackgroundColor: '#e5a50a', spanGaps: true }
       ]},
       options: { responsive: true, maintainAspectRatio: false,
