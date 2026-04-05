@@ -84,11 +84,14 @@ Mac (cron job, 11:40pm nightly)
   "goals": { "cals": 2000, "prot": 150, "carbs": 0, "fat": 0, "targetWeight": null, "targetFat": null },
   "deletions": { "2026-03-28": 1 },
   "favourites": [ { "name": "Porridge", "cals": 350, "prot": 12 } ],
-  "favouriteRemovals": { "Some food": true }
+  "favouriteRemovals": { "Some food": true },
+  "moves": { "x7k2m9qr": true }
 }
 ```
 
-**Note:** Each log entry now has an `id` field — an 8-character random alphanumeric string (e.g. `"x7k2m9qr"`) generated at log time. Old entries without an `id` are still handled correctly — they fall back to `name|cals` dedup. New entries always have an `id`.
+**Note:** Each log entry has an `id` field — an 8-character random alphanumeric string (e.g. `"x7k2m9qr"`) generated at log time. Old entries without an `id` fall back to `name|cals` dedup. New entries always have an `id`.
+
+**`moves`** records the `id` of any entry that has been moved to a different date. During merge, any remote entry whose `id` appears in `moves` is silently skipped — preventing it from reappearing on the old date on any device, including ones that have never opened the app before.
 
 ### health.json
 ```json
@@ -120,6 +123,7 @@ Reads GitHub and overwrites local state entirely. No merge — GitHub wins. Loca
 **Food log merge rules (per date):**
 - If local has a deletion recorded for that date → local wins entirely, remote not pulled in
 - Otherwise → union of local and remote entries, deduped by `id` if present, falling back to `name|cals` for old entries without an id
+- Any remote entry whose `id` is in `moves` is skipped — prevents moved entries from resurrecting on the old date
 
 **Favourites sync:**
 - Uses `favouriteRemovals` object to record explicit unfavourites
@@ -300,7 +304,7 @@ Linear-inspired design system:
 - Macro cards showing calories and protein vs goal with progress bars
 - Date navigator — arrows to step days, tap date to pick, "Today" pill when on past date
 - Logging tabs: Describe Food (AI text), Quick Log (favourites + recent), Photo, Barcode, Manual Entry
-- Today's log list with star (favourite) and delete per entry
+- Today's log list with edit (✎), star (favourite), and delete per entry — edit opens an inline row to change name, kcal, protein, or date; moving to a different date records the entry's `id` in `moves`
 - Past dates can be logged retrospectively — all logging methods work on any selected date
 
 **Trends page:**
@@ -359,6 +363,7 @@ User goal is body recomposition — lose fat while maintaining or gaining muscle
 1. Get the latest `index.html` from the user or this conversation
 2. Make edits
 3. Run the Safari 16.6 JS check (see constraints section)
+3b. Run `node --check` on the extracted JS to catch syntax errors the linter won't catch (broken string concatenation, mismatched quotes, etc.) — a syntax error silently breaks the entire app
 4. Deliver the updated `index.html`
 5. User uploads to `github.com/jainomics/gains-tracker` replacing existing `index.html`
 6. Wait ~60 seconds for GitHub Pages to deploy
