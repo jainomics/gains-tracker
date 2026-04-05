@@ -1151,7 +1151,7 @@ function editEntry(date, idx) {
     '<div style="display:flex;align-items:center;gap:8px;padding:6px 0 10px 0">' +
     '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">DATE</span>' +
     '<input class="edit-num-input" id="edit-date-' + idx + '" type="date" value="' + date + '" max="' + today() + '" style="width:auto;flex:1">' +
-    '<button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="saveEdit('' + date + '',' + idx + ')">Save</button>' +
+    '<button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="saveEdit(\'' + date + '\',' + idx + ')">Save</button>' +
     '<button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="updateTodayDisplay()">Cancel</button>' +
     '</div>';
   document.getElementById('edit-name-' + idx).focus();
