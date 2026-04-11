@@ -429,7 +429,7 @@
       </div>
       <!-- TEXT TAB -->
       <div class="log-panel active" id="panel-text">
-        <textarea id="food-text" rows="3" placeholder="e.g. 'grilled chicken breast 200g with brown rice and broccoli' or 'grande oat milk latte from Starbucks'..."></textarea>
+        <textarea id="food-text" rows="3" placeholder="e.g. 'chicken selects x5 McDonalds' or 'mango kulfi Asda' or 'oat milk latte Starbucks grande'..."></textarea>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="logFromText()" id="btn-text-log">
             <span>Analyse & Log</span>
@@ -1275,8 +1275,8 @@ function logFromText() {
   var statusEl = document.getElementById('text-status');
   btn.disabled = true;
   statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Analysing with AI...</div>';
-  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. You have access to web search — use it to look up exact nutritional data whenever the user mentions a specific restaurant, chain, or branded product (e.g. McDonald\'s, Pret, Greggs, Tesco own-brand). Search for the official nutritional information and use those exact figures. For unbranded or home-cooked food, use accurate standard UK portion sizes. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate.';
-  callClaude(sys, 'Food description: ' + text).then(function(result) {
+  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. The user will describe food in shorthand — interpret it generously. A word at the end that looks like a brand, supermarket, or restaurant (e.g. Asda, Tesco, McDonald\'s, Pret, Greggs, Nando\'s, Wagamama) means the food is from that place. You have access to web search — use it to look up exact nutritional data whenever a specific restaurant, chain, or branded product is mentioned. Search for the official UK nutritional information and use those exact figures. For unbranded or home-cooked food, use accurate standard UK portion sizes. Extract ALL food items described and return ONLY a valid JSON array with no other text. Each item: {name, cals, prot}. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate.';
+  callClaude(sys, text).then(function(result) {
     var items = parseJSON(result);
     if (items && items.length) {
       showConfirm(items, 'text-status', function() {
