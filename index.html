@@ -1275,7 +1275,7 @@ function logFromText() {
   var statusEl = document.getElementById('text-status');
   btn.disabled = true;
   statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Analysing with AI...</div>';
-  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. Use standard UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. Give accurate estimates based on typical UK serving sizes — do not underestimate. For branded UK products use their actual nutritional values.';
+  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. You have access to web search — use it to look up exact nutritional data whenever the user mentions a specific restaurant, chain, or branded product (e.g. McDonald\'s, Pret, Greggs, Tesco own-brand). Search for the official nutritional information and use those exact figures. For unbranded or home-cooked food, use accurate standard UK portion sizes. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate.';
   callClaude(sys, 'Food description: ' + text).then(function(result) {
     var items = parseJSON(result);
     if (items && items.length) {
@@ -1334,7 +1334,7 @@ function logFromPhoto() {
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
-      system: 'You are a precise UK nutrition analyst. The user is based in the UK. Identify all food items visible in the image. Use plate size, hand size, cutlery, or any packaging as reference to estimate portions at standard UK serving sizes. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Give accurate estimates — do not underestimate calories.',
+      system: 'You are a precise UK nutrition analyst. The user is based in the UK. You have access to web search — if you can identify a specific restaurant, chain, or branded product from the image or the user\'s hint, search for the official nutritional data and use those exact figures. For unbranded food, use accurate standard UK portion sizes. Identify all food items visible. Use plate size, hand size, cutlery, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate.',
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photoBase64 } },
         { type: 'text', text: photoHint ? 'Additional context: ' + photoHint : 'What food is in this image? Return the JSON array.' }
