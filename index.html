@@ -1275,7 +1275,7 @@ function logFromText() {
   var statusEl = document.getElementById('text-status');
   btn.disabled = true;
   statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Analysing with AI...</div>';
-  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. Use UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. When uncertain about portion size, estimate conservatively. For branded UK products use their actual nutritional values.';
+  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. Use standard UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. Give accurate estimates based on typical UK serving sizes — do not underestimate. For branded UK products use their actual nutritional values.';
   callClaude(sys, 'Food description: ' + text).then(function(result) {
     var items = parseJSON(result);
     if (items && items.length) {
@@ -1327,15 +1327,17 @@ function logFromPhoto() {
     btn.disabled = false;
     return;
   }
+  var photoHint = document.getElementById('photo-hint').value.trim();
   fetch(WORKER_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Secret': getWorkerSecret() },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
+      system: 'You are a precise UK nutrition analyst. The user is based in the UK. Identify all food items visible in the image. Use plate size, hand size, cutlery, or any packaging as reference to estimate portions at standard UK serving sizes. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Give accurate estimates — do not underestimate calories.',
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photoBase64 } },
-        { type: 'text', text: 'You are a UK nutrition analyst. Identify all food items visible. Use plate size, hand size, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Be conservative when uncertain about portion size.' + (document.getElementById('photo-hint').value.trim() ? ' Additional context from user: ' + document.getElementById('photo-hint').value.trim() : '') }
+        { type: 'text', text: photoHint ? 'Additional context: ' + photoHint : 'What food is in this image? Return the JSON array.' }
       ]}]
     })
   }).then(function(r) { return r.json(); }).then(function(data) {
