@@ -137,15 +137,21 @@ Reads GitHub and overwrites local state entirely. No merge — GitHub wins. Loca
 
 All logging methods go through a confirm-before-log flow — user always reviews before anything is saved.
 
-1. **Describe food** (text) — calls Claude via Cloudflare Worker `POST /`
-2. **Photo** — calls Claude via Cloudflare Worker with optional hint text
-3. **Barcode** — queries Open Food Facts API (free, no key needed), good UK coverage
-4. **Quick Log** — Favourites (starred) + Recent (14 days auto)
-5. **Manual Entry** — name, calories, protein
+**Log tabs (Today page):** AI Text | Quick | 📷 AI | Scan | Manual
+
+1. **AI Text** — user types food in shorthand (e.g. `mango kulfi Asda`, `chicken selects x5 McDonalds`). Calls Claude via Cloudflare Worker `POST /` with web search enabled.
+2. **📷 AI** — photo with optional hint text. Calls Claude via Cloudflare Worker with web search enabled.
+3. **Scan** — barcode scanner + manual barcode entry. Queries Open Food Facts API (free, no key needed), good UK coverage.
+4. **Quick** — Favourites (starred) + Recent (14 days auto)
+5. **Manual** — name, calories, protein
 
 **System prompts (UK-aware):**
-- Text: *"You are a precise UK nutrition analyst. The user is based in the UK. Use UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. When uncertain about portion size, estimate conservatively. For branded UK products use their actual nutritional values."*
-- Photo: *"You are a UK nutrition analyst. Identify all food items visible. Use plate size, hand size, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Be conservative when uncertain about portion size."* + optional user hint appended.
+- Text (passed as `system` field): *"You are a precise UK nutrition analyst. The user is based in the UK. The user will describe food in shorthand — interpret it generously. A word at the end that looks like a brand, supermarket, or restaurant (e.g. Asda, Tesco, McDonald's, Pret, Greggs, Nando's, Wagamama) means the food is from that place. You have access to web search — use it to look up exact nutritional data whenever a specific restaurant, chain, or branded product is mentioned. Search for the official UK nutritional information and use those exact figures. For unbranded or home-cooked food, use accurate standard UK portion sizes. Extract ALL food items described and return ONLY a valid JSON array with no other text. Each item: {name, cals, prot}. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate."* User message is the raw food description text with no prefix.
+- Photo (passed as `system` field): *"You are a precise UK nutrition analyst. The user is based in the UK. You have access to web search — if you can identify a specific restaurant, chain, or branded product from the image or the user's hint, search for the official nutritional data and use those exact figures. For unbranded food, use accurate standard UK portion sizes. Identify all food items visible. Use plate size, hand size, cutlery, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate."* User message contains only the image + hint text (or a plain fallback prompt if no hint provided).
+
+**Important:** Both prompts use the API `system` field, not the user message. Never put instructions in the user turn. The user message for text logging is sent as-is (no "Food description:" prefix).
+
+**Web search:** The worker injects `web_search_20250305` into every `POST /` request and runs an agentic loop (up to 5 turns). Claude searches automatically when it recognises a named restaurant or brand. Adds ~2-3s latency for searches.
 
 Model: `claude-sonnet-4-20250514`
 
@@ -155,7 +161,7 @@ Model: `claude-sonnet-4-20250514`
 
 Two routes, both protected by `X-Secret` header:
 
-**`POST /`** — AI proxy. Forwards request body to Anthropic API and returns response.
+**`POST /`** — AI proxy with web search agentic loop. Injects `web_search_20250305` tool, runs up to 5 turns until `stop_reason === 'end_turn'`, always returns `{ content: [{ type: 'text', text: '...' }] }` to the app. `max_tokens` set to 4000 to accommodate search results.
 
 **`POST /health`** — Apple Health ingestion. Receives JSON from Health Auto Export, parses steps and active energy (handles both kJ and kcal units), reads current `health.json` from GitHub, merges by date, writes back.
 
@@ -303,16 +309,19 @@ Linear-inspired design system:
 **Today page:**
 - Macro cards showing calories and protein vs goal with progress bars
 - Date navigator — arrows to step days, tap date to pick, "Today" pill when on past date
-- Logging tabs: Describe Food (AI text), Quick Log (favourites + recent), Photo, Barcode, Manual Entry
+- Logging tabs: AI Text | Quick | 📷 AI | Scan | Manual
 - Today's log list with edit (✎), star (favourite), and delete per entry — edit opens an inline row to change name, kcal, protein, or date; moving to a different date records the entry's `id` in `moves`
 - Past dates can be logged retrospectively — all logging methods work on any selected date
 
 **Trends page:**
-- 7-day summary table (always last 7 days, colour-coded vs goals)
+- Logging streak card (above period selector) — counts consecutive days with at least one food entry, walking back from today. If today has no entries yet it is skipped without breaking the streak. Updates live when food is logged on the Today page (`renderStreak()` is called from `updateTodayDisplay()`). Subtitle adapts: "No streak yet", "Started today", or "X days in a row".
 - Period selector: 7d / 30d / 3m / 1y
+- 7-day summary table (always last 7 days, colour-coded vs goals)
 - 4 stat boxes: Avg daily calories, Avg daily protein, Avg active calories, Total steps (label reads "this week" on 7d, "this period" otherwise)
-- Single combined chart: Calories (left axis, indigo), Steps + Active kcal (right axis, orange and pink)
-- Body composition chart (weight + body fat %)
+- Chart 1 — Calories & Active kcal as ratio vs target (left axis, 1.0 = 100%), Steps absolute (right axis). Calories target = goal cals, active kcal target = 770. Axis ticks shown as percentages.
+- Chart 2 — Body composition: weight kg (left) + body fat % (right)
+- Chart 3 — Net calories vs Weight: 30-day rolling average of (calories consumed − active kcal burned) on left axis, weight kg on right. Calculated for every day in the period; body weight plotted only on weigh-in days (spanGaps bridges gaps). Requires 7+ days of overlapping food+activity data in each 30-day window to plot a net point.
+- Chart 4 — Net calories vs Body fat %: same net kcal line, body fat % on right axis
 - Nutrition ↔ Body insights (recomp scoring)
 
 **Body page:** Withings auto-sync status, manual body measurement entry, measurement history
@@ -363,7 +372,15 @@ User goal is body recomposition — lose fat while maintaining or gaining muscle
 1. Get the latest `index.html` from the user or this conversation
 2. Make edits
 3. Run the Safari 16.6 JS check (see constraints section)
-3b. Run `node --check` on the extracted JS to catch syntax errors the linter won't catch (broken string concatenation, mismatched quotes, etc.) — a syntax error silently breaks the entire app
+3b. Run `node --check` on the extracted JS to catch syntax errors the linter won't catch (broken string concatenation, mismatched quotes, etc.) — a syntax error silently breaks the entire app:
+```python
+with open('index.html', 'r') as f:
+    html = f.read()
+js = html[html.index('<script>') + len('<script>'):html.index('</script>')]
+with open('/tmp/check.js', 'w') as f:
+    f.write(js)
+# then: node --check /tmp/check.js
+```
 4. Deliver the updated `index.html`
 5. User uploads to `github.com/jainomics/gains-tracker` replacing existing `index.html`
 6. Wait ~60 seconds for GitHub Pages to deploy
@@ -382,6 +399,5 @@ For Worker changes: edit in Cloudflare dashboard → Deploy. No file to upload.
 ## Ideas for future development
 
 - Better AI accuracy — meal context, confidence flagging
-- Streak tracking and habit data
 - Improved mobile UX — bottom tab bar native feel
 - Making the app a product (aspirational, not immediate)
