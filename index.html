@@ -119,8 +119,8 @@
   }
   .log-tabs { display: flex; border-bottom: 0.5px solid var(--border2); overflow-x: auto; }
   .log-tab {
-    flex: 1; min-width: 80px; padding: 10px 12px; text-align: center;
-    font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase;
+    flex: 1; min-width: 0; padding: 8px 6px; text-align: center;
+    font-size: 10px; font-weight: 500; letter-spacing: 0.03em; text-transform: uppercase;
     color: var(--text4); cursor: pointer; transition: color 0.1s;
     border-bottom: 1.5px solid transparent; white-space: nowrap;
   }
@@ -416,11 +416,11 @@
 
   <div class="log-area">
     <div class="log-tabs">
-      <div class="log-tab active" onclick="switchLogTab('text')">✏️ Describe Food</div>
-      <div class="log-tab" onclick="switchLogTab('recent')">&#9733; Quick Log</div>
-      <div class="log-tab" onclick="switchLogTab('photo')">📷 Photo</div>
-      <div class="log-tab" onclick="switchLogTab('barcode')">&#x25A6; Barcode</div>
-      <div class="log-tab" onclick="switchLogTab('manual')">🔢 Manual Entry</div>
+      <div class="log-tab active" onclick="switchLogTab('text')">AI Text</div>
+      <div class="log-tab" onclick="switchLogTab('recent')">Quick</div>
+      <div class="log-tab" onclick="switchLogTab('photo')">📷 AI</div>
+      <div class="log-tab" onclick="switchLogTab('barcode')">Scan</div>
+      <div class="log-tab" onclick="switchLogTab('manual')">Manual</div>
     </div>
     <div class="log-content">
       <!-- RECENT TAB -->
@@ -516,6 +516,18 @@
 
 <!-- TRENDS -->
 <div class="page" id="page-trends">
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div class="section-title" style="margin-top:0;margin-bottom:4px">Logging streak</div>
+        <div style="font-size:12px;color:var(--text3)" id="streak-subtitle">Days in a row with a food entry</div>
+      </div>
+      <div style="text-align:right">
+        <div id="streak-val" style="font-family:var(--mono);font-size:40px;font-weight:500;color:var(--accent);line-height:1">—</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">day streak 🔥</div>
+      </div>
+    </div>
+  </div>
   <div class="trend-controls">
     <button class="period-btn active" onclick="setPeriod(7,this)">7 days</button>
     <button class="period-btn" onclick="setPeriod(30,this)">30 days</button>
@@ -1124,6 +1136,7 @@ function updateTodayDisplay() {
   document.getElementById('bar-prot').style.width = protPct + '%';
   renderTodayLog();
   updateDateNav();
+  renderStreak();
 }
 
 function renderTodayLog() {
@@ -1556,6 +1569,46 @@ function saveGoals() {
 }
 
 // ============ TRENDS ============
+function calcStreak() {
+  var streak = 0;
+  var d = new Date();
+  var i;
+  // Start from today and walk backwards — stop at the first day with no food entry
+  // (today counts if there is at least one entry, even if the day isn't over)
+  for (i = 0; i < 730; i++) {
+    var dy = d.getFullYear();
+    var dm = d.getMonth() + 1;
+    var dd = d.getDate();
+    var key = dy + '-' + (dm < 10 ? '0' + dm : dm) + '-' + (dd < 10 ? '0' + dd : dd);
+    var logs = state.logs[key] || [];
+    if (logs.length > 0) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    } else {
+      // If today has no entries yet, don't break the streak — just don't count it
+      if (i === 0) {
+        d.setDate(d.getDate() - 1);
+        continue;
+      }
+      break;
+    }
+  }
+  return streak;
+}
+
+function renderStreak() {
+  var el = document.getElementById('streak-val');
+  var sub = document.getElementById('streak-subtitle');
+  if (!el) return;
+  var streak = calcStreak();
+  el.textContent = streak > 0 ? streak : '0';
+  if (sub) {
+    if (streak === 0) sub.textContent = 'No streak yet — log today to start one';
+    else if (streak === 1) sub.textContent = 'Started today — keep it going!';
+    else sub.textContent = streak + ' days in a row with a food entry';
+  }
+}
+
 function setPeriod(days, btn) {
   currentPeriod = days;
   var btns = document.querySelectorAll('.period-btn');
@@ -1797,6 +1850,7 @@ function renderTrends() {
     if (nfWrapEl) nfWrapEl.style.display = 'none';
   }
 
+  renderStreak();
   renderCorrelations(logged, bodyInRange);
   renderSummaryTable();
 }
