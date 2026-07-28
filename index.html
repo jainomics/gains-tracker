@@ -1244,7 +1244,7 @@ function logFromPhoto() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Secret': getWorkerSecret() },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1000,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photoBase64 } },
@@ -1294,7 +1294,7 @@ function callClaude(system, user) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Secret': getWorkerSecret() },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1000,
       system: system,
       messages: [{ role: 'user', content: user }]
