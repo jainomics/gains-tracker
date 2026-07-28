@@ -119,8 +119,8 @@
   }
   .log-tabs { display: flex; border-bottom: 0.5px solid var(--border2); overflow-x: auto; }
   .log-tab {
-    flex: 1; min-width: 0; padding: 8px 6px; text-align: center;
-    font-size: 10px; font-weight: 500; letter-spacing: 0.03em; text-transform: uppercase;
+    flex: 1; min-width: 80px; padding: 10px 12px; text-align: center;
+    font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase;
     color: var(--text4); cursor: pointer; transition: color 0.1s;
     border-bottom: 1.5px solid transparent; white-space: nowrap;
   }
@@ -196,12 +196,6 @@
   .log-item-cals { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text2); white-space: nowrap; }
   .log-item-del { background: none; border: none; color: var(--text4); cursor: pointer; font-size: 14px; padding: 4px; border-radius: var(--r-sm); transition: color 0.1s; line-height: 1; }
   .log-item-del:hover { color: var(--red); }
-  .log-item-edit { background: none; border: none; color: var(--text4); cursor: pointer; font-size: 13px; padding: 4px; border-radius: var(--r-sm); transition: color 0.1s; line-height: 1; }
-  .log-item-edit:hover { color: var(--accent); }
-  .edit-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 0.5px solid var(--border); flex-wrap: wrap; }
-  .edit-row:last-child { border-bottom: none; }
-  .edit-name-input { flex: 1; min-width: 120px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--r-sm); padding: 6px 8px; color: var(--text); font-family: var(--sans); font-size: 13px; outline: none; }
-  .edit-num-input { width: 64px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--r-sm); padding: 6px 8px; color: var(--text); font-family: var(--mono); font-size: 12px; text-align: center; outline: none; }
   .log-empty { text-align: center; padding: 32px 20px; color: var(--text4); font-size: 13px; }
   .log-time { font-size: 10px; color: var(--text4); font-family: var(--mono); }
 
@@ -416,11 +410,11 @@
 
   <div class="log-area">
     <div class="log-tabs">
-      <div class="log-tab active" onclick="switchLogTab('text')">AI Text</div>
-      <div class="log-tab" onclick="switchLogTab('recent')">Quick</div>
-      <div class="log-tab" onclick="switchLogTab('photo')">📷 AI</div>
-      <div class="log-tab" onclick="switchLogTab('barcode')">Scan</div>
-      <div class="log-tab" onclick="switchLogTab('manual')">Manual</div>
+      <div class="log-tab active" onclick="switchLogTab('text')">✏️ Describe Food</div>
+      <div class="log-tab" onclick="switchLogTab('recent')">&#9733; Quick Log</div>
+      <div class="log-tab" onclick="switchLogTab('photo')">📷 Photo</div>
+      <div class="log-tab" onclick="switchLogTab('barcode')">&#x25A6; Barcode</div>
+      <div class="log-tab" onclick="switchLogTab('manual')">🔢 Manual Entry</div>
     </div>
     <div class="log-content">
       <!-- RECENT TAB -->
@@ -429,7 +423,7 @@
       </div>
       <!-- TEXT TAB -->
       <div class="log-panel active" id="panel-text">
-        <textarea id="food-text" rows="3" placeholder="e.g. 'chicken selects x5 McDonalds' or 'mango kulfi Asda' or 'oat milk latte Starbucks grande'..."></textarea>
+        <textarea id="food-text" rows="3" placeholder="e.g. 'grilled chicken breast 200g with brown rice and broccoli' or 'grande oat milk latte from Starbucks'..."></textarea>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="logFromText()" id="btn-text-log">
             <span>Analyse & Log</span>
@@ -516,18 +510,6 @@
 
 <!-- TRENDS -->
 <div class="page" id="page-trends">
-  <div class="card" style="margin-bottom:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <div>
-        <div class="section-title" style="margin-top:0;margin-bottom:4px">Logging streak</div>
-        <div style="font-size:12px;color:var(--text3)" id="streak-subtitle">Days in a row with a food entry</div>
-      </div>
-      <div style="text-align:right">
-        <div id="streak-val" style="font-family:var(--mono);font-size:40px;font-weight:500;color:var(--accent);line-height:1">—</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">day streak 🔥</div>
-      </div>
-    </div>
-  </div>
   <div class="trend-controls">
     <button class="period-btn active" onclick="setPeriod(7,this)">7 days</button>
     <button class="period-btn" onclick="setPeriod(30,this)">30 days</button>
@@ -551,31 +533,20 @@
       <div id="avg-prot-val" style="font-family:var(--mono);font-size:32px;font-weight:500;color:var(--green);margin-bottom:4px">—</div>
       <div style="font-size:12px;color:var(--text3)">grams per day</div>
     </div>
-    <div class="card">
-      <div class="section-title" style="margin-top:0">Avg active calories</div>
-      <div id="avg-active-val" style="font-family:var(--mono);font-size:32px;font-weight:500;color:#ec4899;margin-bottom:4px">—</div>
-      <div style="font-size:12px;color:var(--text3)">kcal per day</div>
-    </div>
-    <div class="card">
-      <div class="section-title" style="margin-top:0">Total steps</div>
-      <div id="total-steps-val" style="font-family:var(--mono);font-size:32px;font-weight:500;color:#f97316;margin-bottom:4px">—</div>
-      <div style="font-size:12px;color:var(--text3)" id="total-steps-label">this period</div>
-    </div>
   </div>
 
   <div class="card" style="margin-top:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div class="section-title" style="margin-top:0;margin-bottom:0">Calories & Active kcal (% of target) + Steps</div>
-      <div style="display:flex;gap:14px;align-items:center">
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e6ad2"></div><span style="font-size:11px;color:var(--text3)">Cals %</span></div>
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#f97316"></div><span style="font-size:11px;color:var(--text3)">Steps</span></div>
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#ec4899"></div><span style="font-size:11px;color:var(--text3)">Active %</span></div>
-      </div>
-    </div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Left axis: ratio vs target (1.0 = 100%). Calories vs goal, active kcal vs 770</div>
-    <div id="trend-chart-empty" style="color:var(--text3);font-size:13px;padding:12px 0;display:none">No data yet for this period</div>
-    <div class="chart-wrap-tall" id="trend-chart-wrap">
+    <div class="section-title" style="margin-top:0">Calories & Protein over time</div>
+    <div class="chart-wrap">
       <canvas id="trend-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title" style="margin-top:0">Macro breakdown (avg)</div>
+    <div style="display:flex;gap:16px;align-items:center">
+      <div style="position:relative;width:140px;height:140px;flex-shrink:0"><canvas id="macro-pie"></canvas></div>
+      <div style="flex:1" id="pie-legend"></div>
     </div>
   </div>
 
@@ -586,33 +557,17 @@
     </div>
   </div>
 
-  <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div class="section-title" style="margin-top:0;margin-bottom:0">Net calories vs Weight</div>
-      <div style="display:flex;gap:14px;align-items:center">
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e6ad2"></div><span style="font-size:11px;color:var(--text3)">Net kcal (30d avg)</span></div>
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e8fd2"></div><span style="font-size:11px;color:var(--text3)">Weight kg</span></div>
+  <div class="card" id="health-chart-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="section-title" style="margin-top:0;margin-bottom:0">Activity trend</div>
+      <div style="display:flex;gap:16px;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#f97316"></div><span style="font-size:11px;color:var(--text3)">Steps</span></div>
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#ec4899"></div><span style="font-size:11px;color:var(--text3)">Active kcal</span></div>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Net = calories consumed minus active kcal burned, 30-day rolling average</div>
-    <div id="net-weight-empty" style="color:var(--text3);font-size:13px;padding:12px 0">Not enough data yet — need food logs, activity data, and body measurements</div>
-    <div class="chart-wrap-tall" id="net-weight-wrap" style="display:none">
-      <canvas id="net-weight-chart"></canvas>
-    </div>
-  </div>
-
-  <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div class="section-title" style="margin-top:0;margin-bottom:0">Net calories vs Body fat %</div>
-      <div style="display:flex;gap:14px;align-items:center">
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#5e6ad2"></div><span style="font-size:11px;color:var(--text3)">Net kcal (30d avg)</span></div>
-        <div style="display:flex;align-items:center;gap:5px"><div style="width:8px;height:8px;border-radius:50%;background:#e5a50a"></div><span style="font-size:11px;color:var(--text3)">Body fat %</span></div>
-      </div>
-    </div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Net = calories consumed minus active kcal burned, 30-day rolling average</div>
-    <div id="net-fat-empty" style="color:var(--text3);font-size:13px;padding:12px 0">Not enough data yet — need food logs, activity data, and body measurements</div>
-    <div class="chart-wrap-tall" id="net-fat-wrap" style="display:none">
-      <canvas id="net-fat-chart"></canvas>
+    <div id="health-chart-empty" style="color:var(--text3);font-size:13px;padding:12px 0">No activity data yet — open Health Auto Export and tap Export Now</div>
+    <div class="chart-wrap-tall" id="health-chart-wrap" style="display:none">
+      <canvas id="health-chart"></canvas>
     </div>
   </div>
 
@@ -712,6 +667,19 @@
   </div>
 
   <div class="card">
+    <div class="section-title" style="margin-top:0">Backup your data</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+      Makes a full copy of everything stored on this device — food logs, body measurements, goals and favourites — as text you can save somewhere safe. Do this before changing anything below, especially if this device has not synced in a while.
+    </div>
+    <div class="btn-row" style="margin-top:0;margin-bottom:10px">
+      <button class="btn btn-primary" onclick="exportBackup()">Create backup</button>
+      <button class="btn btn-ghost" onclick="copyBackup()" id="btn-copy-backup" style="display:none">Copy to clipboard</button>
+    </div>
+    <textarea id="backup-output" rows="6" readonly style="display:none;font-family:var(--mono);font-size:11px"></textarea>
+    <div id="backup-status" style="font-size:12px;color:var(--text3);margin-top:8px"></div>
+  </div>
+
+  <div class="card">
     <div class="section-title" style="margin-top:0">GitHub sync</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
       Your food logs sync automatically to your private <span style="font-family:var(--mono);font-size:12px;color:var(--accent2);background:rgba(124,110,244,0.1);padding:2px 6px;border-radius:4px">jainomics/gains-data</span> (private) — available on all your devices. Paste your GitHub Personal Access Token once to activate.
@@ -755,10 +723,9 @@ var state = {
   deletions: {},  // tracks intentional deletes: {date: count}
   favourites: [],   // [{name, cals, prot}]
   favouriteRemovals: {},  // {name: true} — names explicitly unfavourited on this device
-  moves: {},  // {id: true} — entry ids that have been moved to a different date; blocks resurrection on merge
   health: []  // [{date, steps, activeCals}] from Apple Health via Shortcut
 };
-var trendChart = null, bodyChart = null, healthChart = null, netWeightChart = null, netFatChart = null;
+var trendChart = null, bodyChart = null, pieChart = null, healthChart = null;
 var currentPeriod = 7;
 var photoBase64 = null;
 var githubSyncing = false;
@@ -792,7 +759,6 @@ function loadLocal() {
       if (p.deletions) state.deletions = p.deletions;
       if (p.favourites) state.favourites = p.favourites;
       if (p.favouriteRemovals) state.favouriteRemovals = p.favouriteRemovals;
-      if (p.moves) state.moves = p.moves;
       if (p.health) state.health = p.health;
     } catch(e) {}
   } else if (old) {
@@ -811,6 +777,41 @@ function getToken() {
   return localStorage.getItem('gh_token') || '';
 }
 
+// Decode a GitHub Contents-API response into a JS object.
+// Small files (<1MB) come back with base64 content inline — decode directly.
+// Larger files come back with encoding:"none" and empty content — GitHub's
+// Contents API only inlines files under 1MB, so for anything bigger we fetch
+// the raw blob separately using the same file's sha (works up to 100MB).
+function githubDecodeContent(data) {
+  if (data.encoding === 'base64' && data.content) {
+    var raw = data.content;
+    var cleaned = '';
+    var i;
+    for (i = 0; i < raw.length; i++) {
+      var ch = raw.charCodeAt(i);
+      if (ch !== 10 && ch !== 13 && ch !== 32) cleaned += raw[i];
+    }
+    try {
+      return Promise.resolve(JSON.parse(atob(cleaned)));
+    } catch(e) {
+      return Promise.reject(e);
+    }
+  }
+  var token = getToken();
+  var blobUrl = 'https://api.github.com/repos/' + GITHUB_USER + '/' + GITHUB_REPO + '/git/blobs/' + data.sha;
+  return fetch(blobUrl, {
+    headers: {
+      'Authorization': 'token ' + token,
+      'Accept': 'application/vnd.github.v3.raw'
+    }
+  }).then(function(resp) {
+    if (!resp.ok) throw new Error('GitHub blob error: ' + resp.status);
+    return resp.text();
+  }).then(function(text) {
+    return JSON.parse(text);
+  });
+}
+
 function githubRead() {
   var token = getToken();
   if (!token) return Promise.resolve(null);
@@ -822,14 +823,9 @@ function githubRead() {
     return resp.json();
   }).then(function(data) {
     if (!data) return null;
-    var raw = data.content;
-    var cleaned = '';
-    for (var i = 0; i < raw.length; i++) {
-      var ch = raw.charCodeAt(i);
-      if (ch !== 10 && ch !== 13 && ch !== 32) cleaned += raw[i];
-    }
-    var decoded = JSON.parse(atob(cleaned));
-    return { data: decoded, sha: data.sha };
+    return githubDecodeContent(data).then(function(decoded) {
+      return { data: decoded, sha: data.sha };
+    });
   }).catch(function(e) {
     console.warn('GitHub read:', e.message);
     return null;
@@ -869,35 +865,30 @@ function syncWithings() {
     return resp.json();
   }).then(function(data) {
     if (!data) return;
-    var raw = data.content;
-    var cleaned = '';
-    for (var i = 0; i < raw.length; i++) {
-      var ch = raw.charCodeAt(i);
-      if (ch !== 10 && ch !== 13 && ch !== 32) cleaned += raw[i];
-    }
-    var decoded = JSON.parse(atob(cleaned));
-    var measurements = decoded.measurements || [];
-    if (!measurements.length) return;
-    var bodyMap = {};
-    var i;
-    for (i = 0; i < state.body.length; i++) bodyMap[state.body[i].date] = state.body[i];
-    for (i = 0; i < measurements.length; i++) {
-      var m = measurements[i];
-      if (m.weight || m.fat) bodyMap[m.date] = { date: m.date, weight: m.weight, fat: m.fat };
-    }
-    var merged = [];
-    var k;
-    for (k in bodyMap) merged.push(bodyMap[k]);
-    merged.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-    state.body = merged;
-    saveLocal();
-    var dot = document.getElementById('withings-dot');
-    if (dot) dot.classList.add('connected');
-    var label = document.getElementById('withings-label');
-    if (label) label.textContent = 'Synced';
-    var status = document.getElementById('withings-load-status');
-    if (status) status.textContent = measurements.length + ' measurements loaded';
-    console.log('Withings: loaded ' + measurements.length + ' measurements');
+    return githubDecodeContent(data).then(function(decoded) {
+      var measurements = decoded.measurements || [];
+      if (!measurements.length) return;
+      var bodyMap = {};
+      var i;
+      for (i = 0; i < state.body.length; i++) bodyMap[state.body[i].date] = state.body[i];
+      for (i = 0; i < measurements.length; i++) {
+        var m = measurements[i];
+        if (m.weight || m.fat) bodyMap[m.date] = { date: m.date, weight: m.weight, fat: m.fat };
+      }
+      var merged = [];
+      var k;
+      for (k in bodyMap) merged.push(bodyMap[k]);
+      merged.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+      state.body = merged;
+      saveLocal();
+      var dot = document.getElementById('withings-dot');
+      if (dot) dot.classList.add('connected');
+      var label = document.getElementById('withings-label');
+      if (label) label.textContent = 'Synced';
+      var status = document.getElementById('withings-load-status');
+      if (status) status.textContent = measurements.length + ' measurements loaded';
+      console.log('Withings: loaded ' + measurements.length + ' measurements');
+    });
   }).catch(function(e) {
     console.warn('Withings sync error:', e.message);
   });
@@ -915,7 +906,6 @@ function pullFromGitHub() {
     if (d.goals) state.goals = d.goals;
     if (d.favourites) state.favourites = d.favourites;
     if (d.favouriteRemovals) state.favouriteRemovals = d.favouriteRemovals;
-    if (d.moves) state.moves = d.moves;
     if (d.deletions) state.deletions = d.deletions;
     saveLocal();
     updateTodayDisplay();
@@ -938,27 +928,22 @@ function syncHealth() {
     return resp.json();
   }).then(function(data) {
     if (!data) return;
-    var raw = data.content;
-    var cleaned = '';
-    for (var i = 0; i < raw.length; i++) {
-      var ch = raw.charCodeAt(i);
-      if (ch !== 10 && ch !== 13 && ch !== 32) cleaned += raw[i];
-    }
-    var decoded = JSON.parse(atob(cleaned));
-    var entries = decoded.entries || [];
-    if (!entries.length) return;
-    // Merge by date — health data is authoritative from Apple
-    var healthMap = {};
-    var i;
-    for (i = 0; i < state.health.length; i++) healthMap[state.health[i].date] = state.health[i];
-    for (i = 0; i < entries.length; i++) healthMap[entries[i].date] = entries[i];
-    var merged = [];
-    var k;
-    for (k in healthMap) merged.push(healthMap[k]);
-    merged.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-    state.health = merged;
-    saveLocal();
-    console.log('Health: loaded ' + entries.length + ' entries');
+    return githubDecodeContent(data).then(function(decoded) {
+      var entries = decoded.entries || [];
+      if (!entries.length) return;
+      // Merge by date — health data is authoritative from Apple
+      var healthMap = {};
+      var i;
+      for (i = 0; i < state.health.length; i++) healthMap[state.health[i].date] = state.health[i];
+      for (i = 0; i < entries.length; i++) healthMap[entries[i].date] = entries[i];
+      var merged = [];
+      var k;
+      for (k in healthMap) merged.push(healthMap[k]);
+      merged.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+      state.health = merged;
+      saveLocal();
+      console.log('Health: loaded ' + entries.length + ' entries');
+    });
   }).catch(function(e) {
     console.warn('Health sync error:', e.message);
   });
@@ -991,15 +976,12 @@ function syncToGitHub() {
         var ei;
         var combined = [];
         for (ei = 0; ei < localDay.length; ei++) {
-          var lk = localDay[ei].id ? ('id|' + localDay[ei].id) : (localDay[ei].name + '|' + localDay[ei].cals);
+          var lk = localDay[ei].name + '|' + localDay[ei].cals;
           if (!seen[lk]) { seen[lk] = true; combined.push(localDay[ei]); }
         }
         for (ei = 0; ei < remoteDay.length; ei++) {
-          var rentry = remoteDay[ei];
-          // Skip if this entry was moved away from this date on the local device
-          if (rentry.id && state.moves && state.moves[rentry.id]) continue;
-          var rk2 = rentry.id ? ('id|' + rentry.id) : (rentry.name + '|' + rentry.cals);
-          if (!seen[rk2]) { seen[rk2] = true; combined.push(rentry); }
+          var rk2 = remoteDay[ei].name + '|' + remoteDay[ei].cals;
+          if (!seen[rk2]) { seen[rk2] = true; combined.push(remoteDay[ei]); }
         }
         state.logs[k] = combined;
       }
@@ -1053,8 +1035,7 @@ function syncToGitHub() {
       goals: state.goals,
       deletions: state.deletions || {},
       favourites: state.favourites || [],
-      favouriteRemovals: state.favouriteRemovals || {},
-      moves: state.moves || {}
+      favouriteRemovals: state.favouriteRemovals || {}
     };
     return githubWrite(payload, sha);
   }).then(function(ok) {
@@ -1090,12 +1071,7 @@ function save() {
 function load() { loadLocal(); }
 
 // ============ UTILS ============
-function today() {
-  var d = new Date();
-  var m = d.getMonth() + 1;
-  var dd = d.getDate();
-  return d.getFullYear() + '-' + (m < 10 ? '0' + m : m) + '-' + (dd < 10 ? '0' + dd : dd);
-}
+function today() { return new Date().toISOString().split('T')[0]; }
 function fmt(n) { return Math.round(n).toLocaleString(); }
 
 function toast(msg, dur) {
@@ -1136,7 +1112,6 @@ function updateTodayDisplay() {
   document.getElementById('bar-prot').style.width = protPct + '%';
   renderTodayLog();
   updateDateNav();
-  renderStreak();
 }
 
 function renderTodayLog() {
@@ -1159,7 +1134,6 @@ function renderTodayLog() {
       '<div class="log-time">' + (l.time || '') + '</div>' +
       '</div>' +
       '<div class="log-item-cals">' + fmt(l.cals) + ' kcal</div>' +
-      '<button class="log-item-edit" onclick="editEntry(\'' + d + '\',' + i + ')" title="Edit">&#9998;</button>' +
       '<button class="log-item-star' + starred + '" onclick="toggleFavourite(\'' + d + '\',' + i + ',this)" title="Favourite">&#9733;</button>' +
       '<button class="log-item-del" onclick="deleteEntry(\'' + d + '\',' + i + ')" title="Delete">&#10005;</button>' +
       '</div>';
@@ -1178,79 +1152,6 @@ function deleteEntry(date, idx) {
   syncToGitHub();
 }
 
-function editEntry(date, idx) {
-  var el = document.getElementById('today-log-list');
-  var items = el.querySelectorAll('.log-item');
-  if (idx >= items.length) return;
-  var l = state.logs[date][idx];
-  var row = items[idx];
-  row.innerHTML =
-    '<div class="edit-row">' +
-    '<input class="edit-name-input" id="edit-name-' + idx + '" type="text" value="' + l.name.replace(/"/g, '&quot;') + '">' +
-    '<input class="edit-num-input" id="edit-cals-' + idx + '" type="number" value="' + (l.cals || 0) + '" placeholder="kcal">' +
-    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">KCAL</span>' +
-    '<input class="edit-num-input" id="edit-prot-' + idx + '" type="number" value="' + (l.prot || 0) + '" placeholder="prot">' +
-    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">PROT</span>' +
-    '</div>' +
-    '<div style="display:flex;align-items:center;gap:8px;padding:6px 0 10px 0">' +
-    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">DATE</span>' +
-    '<input class="edit-num-input" id="edit-date-' + idx + '" type="date" value="' + date + '" max="' + today() + '" style="width:auto;flex:1">' +
-    '<button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="saveEdit(\'' + date + '\',' + idx + ')">Save</button>' +
-    '<button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="updateTodayDisplay()">Cancel</button>' +
-    '</div>';
-  document.getElementById('edit-name-' + idx).focus();
-}
-
-function saveEdit(date, idx) {
-  var nameEl = document.getElementById('edit-name-' + idx);
-  var calsEl = document.getElementById('edit-cals-' + idx);
-  var protEl = document.getElementById('edit-prot-' + idx);
-  var dateEl = document.getElementById('edit-date-' + idx);
-  if (!nameEl || !calsEl || !protEl || !dateEl) return;
-  var name = nameEl.value.trim();
-  var cals = parseInt(calsEl.value) || 0;
-  var prot = parseInt(protEl.value) || 0;
-  var newDate = dateEl.value;
-  if (!name) { nameEl.focus(); return; }
-  if (!newDate) { newDate = date; }
-  // Pull the entry out of the old date
-  var entry = state.logs[date][idx];
-  entry.name = name;
-  entry.cals = cals;
-  entry.prot = prot;
-  if (newDate !== date) {
-    // Moving to a different date — splice quietly (no deletions counter)
-    // Record the id in moves so it can't resurrect on the old date during merge
-    if (entry.id) {
-      if (!state.moves) state.moves = {};
-      state.moves[entry.id] = true;
-    }
-    state.logs[date].splice(idx, 1);
-    if (!state.logs[date].length) delete state.logs[date];
-    if (!state.logs[newDate]) state.logs[newDate] = [];
-    // Clear time when moving to a past date, keep if moving to today
-    if (newDate !== today()) entry.time = '';
-    state.logs[newDate].push(entry);
-    save();
-    updateTodayDisplay();
-    toast('Moved to ' + newDate);
-  } else {
-    state.logs[date][idx] = entry;
-    save();
-    updateTodayDisplay();
-    toast('Updated: ' + name);
-  }
-}
-
-function makeEntryId() {
-  var chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  var id = '';
-  for (var ci = 0; ci < 8; ci++) {
-    id += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return id;
-}
-
 function addEntry(entry) {
   var d = viewDate || today();
   if (!state.logs[d]) state.logs[d] = [];
@@ -1261,7 +1162,6 @@ function addEntry(entry) {
   } else {
     entry.time = '';
   }
-  entry.id = makeEntryId();
   state.logs[d].push(entry);
   save();
   updateTodayDisplay();
@@ -1288,8 +1188,8 @@ function logFromText() {
   var statusEl = document.getElementById('text-status');
   btn.disabled = true;
   statusEl.innerHTML = '<div class="ai-status"><div class="spinner"></div>Analysing with AI...</div>';
-  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. The user will describe food in shorthand — interpret it generously. A word at the end that looks like a brand, supermarket, or restaurant (e.g. Asda, Tesco, McDonald\'s, Pret, Greggs, Nando\'s, Wagamama) means the food is from that place. You have access to web search — use it to look up exact nutritional data whenever a specific restaurant, chain, or branded product is mentioned. Search for the official UK nutritional information and use those exact figures. For unbranded or home-cooked food, use accurate standard UK portion sizes. Extract ALL food items described and return ONLY a valid JSON array with no other text. Each item: {name, cals, prot}. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate.';
-  callClaude(sys, text).then(function(result) {
+  var sys = 'You are a precise UK nutrition analyst. The user is based in the UK. Use UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. When uncertain about portion size, estimate conservatively. For branded UK products use their actual nutritional values.';
+  callClaude(sys, 'Food description: ' + text).then(function(result) {
     var items = parseJSON(result);
     if (items && items.length) {
       showConfirm(items, 'text-status', function() {
@@ -1340,17 +1240,15 @@ function logFromPhoto() {
     btn.disabled = false;
     return;
   }
-  var photoHint = document.getElementById('photo-hint').value.trim();
   fetch(WORKER_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Secret': getWorkerSecret() },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
-      system: 'You are a precise UK nutrition analyst. The user is based in the UK. You have access to web search — if you can identify a specific restaurant, chain, or branded product from the image or the user\'s hint, search for the official nutritional data and use those exact figures. For unbranded food, use accurate standard UK portion sizes. Identify all food items visible. Use plate size, hand size, cutlery, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate.',
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photoBase64 } },
-        { type: 'text', text: photoHint ? 'Additional context: ' + photoHint : 'What food is in this image? Return the JSON array.' }
+        { type: 'text', text: 'You are a UK nutrition analyst. Identify all food items visible. Use plate size, hand size, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Be conservative when uncertain about portion size.' + (document.getElementById('photo-hint').value.trim() ? ' Additional context from user: ' + document.getElementById('photo-hint').value.trim() : '') }
       ]}]
     })
   }).then(function(r) { return r.json(); }).then(function(data) {
@@ -1569,46 +1467,6 @@ function saveGoals() {
 }
 
 // ============ TRENDS ============
-function calcStreak() {
-  var streak = 0;
-  var d = new Date();
-  var i;
-  // Start from today and walk backwards — stop at the first day with no food entry
-  // (today counts if there is at least one entry, even if the day isn't over)
-  for (i = 0; i < 730; i++) {
-    var dy = d.getFullYear();
-    var dm = d.getMonth() + 1;
-    var dd = d.getDate();
-    var key = dy + '-' + (dm < 10 ? '0' + dm : dm) + '-' + (dd < 10 ? '0' + dd : dd);
-    var logs = state.logs[key] || [];
-    if (logs.length > 0) {
-      streak++;
-      d.setDate(d.getDate() - 1);
-    } else {
-      // If today has no entries yet, don't break the streak — just don't count it
-      if (i === 0) {
-        d.setDate(d.getDate() - 1);
-        continue;
-      }
-      break;
-    }
-  }
-  return streak;
-}
-
-function renderStreak() {
-  var el = document.getElementById('streak-val');
-  var sub = document.getElementById('streak-subtitle');
-  if (!el) return;
-  var streak = calcStreak();
-  el.textContent = streak > 0 ? streak : '0';
-  if (sub) {
-    if (streak === 0) sub.textContent = 'No streak yet — log today to start one';
-    else if (streak === 1) sub.textContent = 'Started today — keep it going!';
-    else sub.textContent = streak + ' days in a row with a food entry';
-  }
-}
-
 function setPeriod(days, btn) {
   currentPeriod = days;
   var btns = document.querySelectorAll('.period-btn');
@@ -1624,10 +1482,7 @@ function getDaysData(n) {
   for (i = n - 1; i >= 0; i--) {
     var d = new Date();
     d.setDate(d.getDate() - i);
-    var dy = d.getFullYear();
-    var dm = d.getMonth() + 1;
-    var dd = d.getDate();
-    var key = dy + '-' + (dm < 10 ? '0' + dm : dm) + '-' + (dd < 10 ? '0' + dd : dd);
+    var key = d.toISOString().split('T')[0];
     var logs = state.logs[key] || [];
     var cals = 0, prot = 0, j;
     for (j = 0; j < logs.length; j++) { cals += (logs[j].cals || 0); prot += (logs[j].prot || 0); }
@@ -1650,67 +1505,43 @@ function renderTrends() {
   document.getElementById('avg-cals-val').textContent = logged.length ? fmt(avgCals) : '--';
   document.getElementById('avg-prot-val').textContent = logged.length ? fmt(avgProt) : '--';
 
-  // Build health map for activity data aligned with food days
-  var hMap = {};
-  var hi;
-  for (hi = 0; hi < state.health.length; hi++) hMap[state.health[hi].date] = state.health[hi];
-
-  // Activity stats — avg active cals and total steps over logged health days in period
-  var cutoffActivity = new Date();
-  cutoffActivity.setDate(cutoffActivity.getDate() - currentPeriod);
-  var activityDays = [];
-  for (hi = 0; hi < state.health.length; hi++) {
-    if (new Date(state.health[hi].date + 'T00:00:00') >= cutoffActivity) activityDays.push(state.health[hi]);
-  }
-  var totalSteps = 0, totalActiveCals = 0, activeDaysCount = 0;
-  for (hi = 0; hi < activityDays.length; hi++) {
-    if (activityDays[hi].steps || activityDays[hi].activeCals) {
-      totalSteps += (activityDays[hi].steps || 0);
-      totalActiveCals += (activityDays[hi].activeCals || 0);
-      activeDaysCount++;
-    }
-  }
-  var avgActiveCals = activeDaysCount ? Math.round(totalActiveCals / activeDaysCount) : 0;
-  document.getElementById('avg-active-val').textContent = activeDaysCount ? fmt(avgActiveCals) : '--';
-  document.getElementById('total-steps-val').textContent = activeDaysCount ? fmt(totalSteps) : '--';
-  document.getElementById('total-steps-label').textContent = currentPeriod === 7 ? 'this week' : 'this period';
-
-  // Build combined chart — cal ratio + active ratio (left), steps (right)
-  var calGoal = (state.goals && state.goals.cals) ? state.goals.cals : 2000;
-  var activeTarget = 770;
-  var labels = [], calRatioData = [], stepsData = [], activeRatioData = [];
+  var labels = [], calData = [], protData = [];
   for (i = 0; i < days.length; i++) {
     labels.push(days[i].label);
-    calRatioData.push(days[i].hasData ? Math.round((days[i].cals / calGoal) * 100) / 100 : null);
-    var hEntry = hMap[days[i].date] || {};
-    stepsData.push(hEntry.steps || null);
-    activeRatioData.push(hEntry.activeCals ? Math.round((hEntry.activeCals / activeTarget) * 100) / 100 : null);
+    calData.push(days[i].hasData ? days[i].cals : null);
+    protData.push(days[i].hasData ? days[i].prot : null);
   }
-
-  var hasAnyData = false;
-  for (i = 0; i < calRatioData.length; i++) { if (calRatioData[i] !== null || stepsData[i] !== null) { hasAnyData = true; break; } }
-  var emptyEl2 = document.getElementById('trend-chart-empty');
-  var wrapEl2 = document.getElementById('trend-chart-wrap');
-  if (emptyEl2) emptyEl2.style.display = hasAnyData ? 'none' : 'block';
-  if (wrapEl2) wrapEl2.style.display = hasAnyData ? 'block' : 'none';
 
   if (trendChart) trendChart.destroy();
   trendChart = new Chart(document.getElementById('trend-chart'), {
     type: 'line',
     data: { labels: labels, datasets: [
-      { label: 'Calories %', data: calRatioData, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#5e6ad2' },
-      { label: 'Steps', data: stepsData, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y2', pointRadius: 3, pointBackgroundColor: '#f97316' },
-      { label: 'Active %', data: activeRatioData, borderColor: '#ec4899', backgroundColor: 'rgba(236,72,153,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#ec4899' }
+      { label: 'Calories', data: calData, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#5e6ad2' },
+      { label: 'Protein g', data: protData, borderColor: '#4cc38a', backgroundColor: 'rgba(76,195,138,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y2', pointRadius: 3, pointBackgroundColor: '#4cc38a' }
     ]},
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#4a4a4a', font: { size: 11 }, maxTicksLimit: 10 } },
-        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5e6ad2', font: { size: 11 }, callback: function(v) { return Math.round(v * 100) + '%'; } } },
-        y2: { position: 'right', grid: { display: false }, ticks: { color: '#f97316', font: { size: 11 } } }
+        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5e6ad2', font: { size: 11 } } },
+        y2: { position: 'right', grid: { display: false }, ticks: { color: '#4cc38a', font: { size: 11 } } }
       }
     }
   });
+
+  var totProt = 0;
+  for (i = 0; i < logged.length; i++) totProt += logged[i].prot;
+  var protCals = totProt * 4;
+  var otherCals = (avgCals * logged.length) - protCals;
+  if (otherCals < 0) otherCals = 0;
+  if (pieChart) pieChart.destroy();
+  pieChart = new Chart(document.getElementById('macro-pie'), {
+    type: 'doughnut',
+    data: { labels: ['Protein', 'Other'], datasets: [{ data: [protCals || 1, otherCals || 1], backgroundColor: ['#4cc38a', '#1c1c1c'], borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '65%' }
+  });
+  var total = protCals + otherCals || 1;
+  document.getElementById('pie-legend').innerHTML = '<div class="stat-row"><div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;border-radius:2px;background:#3ecf8e"></div><span class="stat-label">Protein</span></div><span class="stat-val">' + fmt(totProt) + 'g <span style="color:var(--text3);font-size:12px">' + Math.round(protCals/total*100) + '% of cals</span></span></div>';
 
   var cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - currentPeriod);
@@ -1741,117 +1572,8 @@ function renderTrends() {
     });
   }
 
-  // ── Net calories charts: rolling 30-day avg calculated for every day in period ──
-  // Step 1: build full net map across ALL dates (not just period) so the 30d window
-  // has data to look back into even for the earliest days of the selected period
-  var netByDate = {};
-  var nd;
-  for (nd in state.logs) {
-    var ndLogs = state.logs[nd] || [];
-    if (!ndLogs.length) continue;
-    var ndCals = 0, nj;
-    for (nj = 0; nj < ndLogs.length; nj++) ndCals += (ndLogs[nj].cals || 0);
-    var ndHealth = hMap[nd];
-    if (ndHealth && ndHealth.activeCals) {
-      netByDate[nd] = ndCals - ndHealth.activeCals;
-    }
-  }
-
-  // Build a body map for quick lookup: date -> {weight, fat}
-  var bodyDateMap = {};
-  var bi2;
-  for (bi2 = 0; bi2 < state.body.length; bi2++) {
-    bodyDateMap[state.body[bi2].date] = state.body[bi2];
-  }
-
-  // Step 2: iterate every day in the selected period, compute 30d rolling avg net,
-  // and look up body measurement for that day (null if no weigh-in)
-  var nwLabels = [], nwNet = [], nwWeight = [];
-  var nfNet = [], nfFat = [];
-  var hasNwData = false, hasNfData = false;
-  for (i = 0; i < days.length; i++) {
-    var dayDate = new Date(days[i].date + 'T00:00:00');
-    var winStart = new Date(dayDate.getTime());
-    winStart.setDate(winStart.getDate() - 29); // 30 days inclusive
-    var netSum = 0, netCount = 0;
-    var wk;
-    for (wk in netByDate) {
-      var wkDate = new Date(wk + 'T00:00:00');
-      if (wkDate >= winStart && wkDate <= dayDate) {
-        netSum += netByDate[wk];
-        netCount++;
-      }
-    }
-    // Only plot a net value if at least 7 days of data exist in the window
-    var avgNet = netCount >= 7 ? Math.round(netSum / netCount) : null;
-    var bodyOnDay = bodyDateMap[days[i].date] || null;
-
-    nwLabels.push(days[i].label);
-    nwNet.push(avgNet);
-    nwWeight.push(bodyOnDay && bodyOnDay.weight ? bodyOnDay.weight : null);
-    nfNet.push(avgNet);
-    nfFat.push(bodyOnDay && bodyOnDay.fat ? bodyOnDay.fat : null);
-
-    if (avgNet !== null && bodyOnDay && bodyOnDay.weight) hasNwData = true;
-    if (avgNet !== null && bodyOnDay && bodyOnDay.fat) hasNfData = true;
-  }
-
-  // Chart 3: net cals (left) vs weight (right), daily x-axis, body nulls where no weigh-in
-  var nwEmptyEl = document.getElementById('net-weight-empty');
-  var nwWrapEl = document.getElementById('net-weight-wrap');
-  if (netWeightChart) { netWeightChart.destroy(); netWeightChart = null; }
-  if (hasNwData) {
-    if (nwEmptyEl) nwEmptyEl.style.display = 'none';
-    if (nwWrapEl) nwWrapEl.style.display = 'block';
-    netWeightChart = new Chart(document.getElementById('net-weight-chart'), {
-      type: 'line',
-      data: { labels: nwLabels, datasets: [
-        { label: 'Net kcal (30d avg)', data: nwNet, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, yAxisID: 'y', pointRadius: 2, pointBackgroundColor: '#5e6ad2', spanGaps: true },
-        { label: 'Weight kg', data: nwWeight, borderColor: '#5e8fd2', backgroundColor: 'rgba(94,143,210,0.06)', tension: 0.3, yAxisID: 'y2', pointRadius: 4, pointBackgroundColor: '#5e8fd2', spanGaps: true }
-      ]},
-      options: { responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#4a4a4a', font: { size: 11 }, maxTicksLimit: 10 } },
-          y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5e6ad2', font: { size: 11 } }, title: { display: true, text: 'Net kcal', color: '#5e6ad2', font: { size: 10 } } },
-          y2: { position: 'right', grid: { display: false }, ticks: { color: '#5e8fd2', font: { size: 11 } }, title: { display: true, text: 'kg', color: '#5e8fd2', font: { size: 10 } } }
-        }
-      }
-    });
-  } else {
-    if (nwEmptyEl) nwEmptyEl.style.display = 'block';
-    if (nwWrapEl) nwWrapEl.style.display = 'none';
-  }
-
-  // Chart 4: net cals (left) vs body fat % (right)
-  var nfEmptyEl = document.getElementById('net-fat-empty');
-  var nfWrapEl = document.getElementById('net-fat-wrap');
-  if (netFatChart) { netFatChart.destroy(); netFatChart = null; }
-  if (hasNfData) {
-    if (nfEmptyEl) nfEmptyEl.style.display = 'none';
-    if (nfWrapEl) nfWrapEl.style.display = 'block';
-    netFatChart = new Chart(document.getElementById('net-fat-chart'), {
-      type: 'line',
-      data: { labels: nwLabels, datasets: [
-        { label: 'Net kcal (30d avg)', data: nfNet, borderColor: '#5e6ad2', backgroundColor: 'rgba(94,106,210,0.06)', tension: 0.3, yAxisID: 'y', pointRadius: 2, pointBackgroundColor: '#5e6ad2', spanGaps: true },
-        { label: 'Body fat %', data: nfFat, borderColor: '#e5a50a', backgroundColor: 'rgba(229,165,10,0.06)', tension: 0.3, yAxisID: 'y2', pointRadius: 4, pointBackgroundColor: '#e5a50a', spanGaps: true }
-      ]},
-      options: { responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#4a4a4a', font: { size: 11 }, maxTicksLimit: 10 } },
-          y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5e6ad2', font: { size: 11 } }, title: { display: true, text: 'Net kcal', color: '#5e6ad2', font: { size: 10 } } },
-          y2: { position: 'right', grid: { display: false }, ticks: { color: '#e5a50a', font: { size: 11 } }, title: { display: true, text: 'Fat %', color: '#e5a50a', font: { size: 10 } } }
-        }
-      }
-    });
-  } else {
-    if (nfEmptyEl) nfEmptyEl.style.display = 'block';
-    if (nfWrapEl) nfWrapEl.style.display = 'none';
-  }
-
-  renderStreak();
   renderCorrelations(logged, bodyInRange);
+  renderHealthChart();
   renderSummaryTable();
 }
 
@@ -1869,10 +1591,7 @@ function renderSummaryTable() {
   for (i = 0; i < 7; i++) {
     var d = new Date();
     d.setDate(d.getDate() - i);
-    var dy = d.getFullYear();
-    var dm = d.getMonth() + 1;
-    var dd = d.getDate();
-    var key = dy + '-' + (dm < 10 ? '0' + dm : dm) + '-' + (dd < 10 ? '0' + dd : dd);
+    var key = d.toISOString().split('T')[0];
     var logs = state.logs[key] || [];
     var cals = 0, prot = 0, j;
     for (j = 0; j < logs.length; j++) { cals += (logs[j].cals || 0); prot += (logs[j].prot || 0); }
@@ -1924,7 +1643,53 @@ function renderSummaryTable() {
     '</table>';
 }
 
+function renderHealthChart() {
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - currentPeriod);
+  var inRange = [];
+  var i;
+  for (i = 0; i < state.health.length; i++) {
+    if (new Date(state.health[i].date + 'T00:00:00') >= cutoff) inRange.push(state.health[i]);
+  }
+  inRange.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
+  var emptyEl = document.getElementById('health-chart-empty');
+  var wrapEl = document.getElementById('health-chart-wrap');
+  if (!inRange.length) {
+    if (emptyEl) emptyEl.style.display = 'block';
+    if (wrapEl) wrapEl.style.display = 'none';
+    if (healthChart) { healthChart.destroy(); healthChart = null; }
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (wrapEl) wrapEl.style.display = 'block';
+
+  var labels = [], stepsData = [], activeCalsData = [];
+  for (i = 0; i < inRange.length; i++) {
+    var parts = inRange[i].date.split('-');
+    var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    labels.push(d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+    stepsData.push(inRange[i].steps || null);
+    activeCalsData.push(inRange[i].activeCals || null);
+  }
+
+  if (healthChart) healthChart.destroy();
+  healthChart = new Chart(document.getElementById('health-chart'), {
+    type: 'line',
+    data: { labels: labels, datasets: [
+      { label: 'Steps', data: stepsData, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y', pointRadius: 3, pointBackgroundColor: '#f97316' },
+      { label: 'Active kcal', data: activeCalsData, borderColor: '#ec4899', backgroundColor: 'rgba(236,72,153,0.06)', tension: 0.3, spanGaps: false, yAxisID: 'y2', pointRadius: 3, pointBackgroundColor: '#ec4899' }
+    ]},
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#4a4a4a', font: { size: 11 }, maxTicksLimit: 10 } },
+        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#f97316', font: { size: 11 } } },
+        y2: { position: 'right', grid: { display: false }, ticks: { color: '#ec4899', font: { size: 11 } } }
+      }
+    }
+  });
+}
 
 function renderCorrelations(nutritionDays, bodyDays) {
   var el = document.getElementById('correlations');
@@ -2222,6 +1987,58 @@ function logFromBarcode() {
   });
 }
 
+// ============ BACKUP ============
+function exportBackup() {
+  var payload = {
+    exported_at: new Date().toISOString(),
+    logs: state.logs,
+    body: state.body,
+    goals: state.goals,
+    deletions: state.deletions || {},
+    favourites: state.favourites || [],
+    favouriteRemovals: state.favouriteRemovals || {},
+    health: state.health || []
+  };
+  var json = JSON.stringify(payload, null, 2);
+  var ta = document.getElementById('backup-output');
+  ta.value = json;
+  ta.style.display = 'block';
+  document.getElementById('btn-copy-backup').style.display = 'inline-flex';
+  var dayCount = Object.keys(state.logs || {}).length;
+  document.getElementById('backup-status').textContent = 'Backup created — ' + dayCount + ' days of logs included. Tap Copy to clipboard, then paste into Notes and save.';
+}
+
+function copyBackupFallback() {
+  var ta = document.getElementById('backup-output');
+  try {
+    var ok = document.execCommand('copy');
+    if (ok) {
+      toast('Copied — now paste into Notes and save');
+      document.getElementById('backup-status').textContent = 'Copied to clipboard. Open Notes, paste it in, and save with the date in the title.';
+    } else {
+      document.getElementById('backup-status').textContent = 'Could not auto-copy — tap inside the box above, select all, and copy manually.';
+    }
+  } catch(e) {
+    document.getElementById('backup-status').textContent = 'Could not auto-copy — tap inside the box above, select all, and copy manually.';
+  }
+}
+
+function copyBackup() {
+  var ta = document.getElementById('backup-output');
+  ta.focus();
+  ta.select();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(function() {
+      toast('Copied — now paste into Notes and save');
+      document.getElementById('backup-status').textContent = 'Copied to clipboard. Open Notes, paste it in, and save with the date in the title.';
+    }).catch(function() {
+      copyBackupFallback();
+    });
+  } else {
+    copyBackupFallback();
+  }
+}
+
 // ============ GITHUB TOKEN SETUP ============
 function saveWorkerSecret() {
   var secret = document.getElementById('worker-secret-input').value.trim();
@@ -2238,9 +2055,14 @@ function saveGithubToken() {
   state.github = { token: token, configured: true };
   localStorage.setItem('gh_token', token);
   saveLocal();
-  document.getElementById('github-status').textContent = 'Token saved — syncing...';
+  document.getElementById('github-status').textContent = 'Token saved — merging with GitHub...';
   document.getElementById('gh-token-input').value = '';
-  pullFromGitHub().then(function() {
+  // Deliberately a merge+push here, not a destructive pull — this device may
+  // have logs that never made it to GitHub while its token was expired, and
+  // a plain pull would overwrite them with GitHub's older copy. syncToGitHub
+  // reads GitHub, combines it with what's stored locally, and writes the
+  // combined result back, so nothing gets lost in either direction.
+  syncToGitHub().then(function() {
     document.getElementById('github-status').textContent = 'Connected and synced';
   });
 }
@@ -2286,10 +2108,8 @@ function shiftDate(delta) {
   var parts = d.split('-');
   var dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   dateObj.setDate(dateObj.getDate() + delta);
-  var y = dateObj.getFullYear();
-  var m = dateObj.getMonth() + 1;
-  var dd = dateObj.getDate();
-  var shifted = y + '-' + (m < 10 ? '0' + m : m) + '-' + (dd < 10 ? '0' + dd : dd);  // Don't allow navigating into the future
+  var shifted = dateObj.toISOString().split('T')[0];
+  // Don't allow navigating into the future
   if (shifted > today()) return;
   setViewDate(shifted);
 }
