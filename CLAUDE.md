@@ -23,7 +23,7 @@ The user is non-technical — explain concepts clearly, avoid jargon, walk throu
 Browser (Safari 16.6)
   └─ index.html (static, hosted on GitHub Pages)
        ├─ Food logs → GitHub API → gains-data/food_logs.json (private)
-       ├─ AI food analysis → Cloudflare Worker / → Anthropic API (Claude Sonnet)
+       ├─ AI food analysis → Cloudflare Worker /  → Anthropic API (Claude Sonnet)
        ├─ Withings body data → gains-data/withings.json (private, read-only from app)
        ├─ Apple Health data → gains-data/health.json (private, read-only from app)
        └─ Local storage (browser cache — source of truth is always GitHub)
@@ -75,7 +75,7 @@ Mac (cron job, 11:40pm nightly)
   "last_synced": "2026-03-28T23:30:00",
   "logs": {
     "2026-03-28": [
-      { "name": "Chicken breast 200g", "cals": 330, "prot": 62, "time": "12:30", "id": "x7k2m9qr" }
+      { "name": "Chicken breast 200g", "cals": 330, "prot": 62, "time": "12:30" }
     ]
   },
   "body": [
@@ -84,14 +84,9 @@ Mac (cron job, 11:40pm nightly)
   "goals": { "cals": 2000, "prot": 150, "carbs": 0, "fat": 0, "targetWeight": null, "targetFat": null },
   "deletions": { "2026-03-28": 1 },
   "favourites": [ { "name": "Porridge", "cals": 350, "prot": 12 } ],
-  "favouriteRemovals": { "Some food": true },
-  "moves": { "x7k2m9qr": true }
+  "favouriteRemovals": { "Some food": true }
 }
 ```
-
-**Note:** Each log entry has an `id` field — an 8-character random alphanumeric string (e.g. `"x7k2m9qr"`) generated at log time. Old entries without an `id` fall back to `name|cals` dedup. New entries always have an `id`.
-
-**`moves`** records the `id` of any entry that has been moved to a different date. During merge, any remote entry whose `id` appears in `moves` is silently skipped — preventing it from reappearing on the old date on any device, including ones that have never opened the app before.
 
 ### health.json
 ```json
@@ -122,8 +117,7 @@ Reads GitHub and overwrites local state entirely. No merge — GitHub wins. Loca
 
 **Food log merge rules (per date):**
 - If local has a deletion recorded for that date → local wins entirely, remote not pulled in
-- Otherwise → union of local and remote entries, deduped by `id` if present, falling back to `name|cals` for old entries without an id
-- Any remote entry whose `id` is in `moves` is skipped — prevents moved entries from resurrecting on the old date
+- Otherwise → union of local and remote entries, deduped by `name|cals` key
 
 **Favourites sync:**
 - Uses `favouriteRemovals` object to record explicit unfavourites
@@ -131,29 +125,29 @@ Reads GitHub and overwrites local state entirely. No merge — GitHub wins. Loca
 - Re-favouriting clears the removal record so it can sync freely again
 - Removal records from remote are only absorbed if the food is NOT currently in local favourites (prevents stale removals killing a re-favourite)
 
+**Reading large files (>1MB) — `githubDecodeContent()`:**
+GitHub's Contents API only inlines base64 `content` for files under 1MB. Past that, it returns `"content": ""` and `"encoding": "none"`, which broke the app once `food_logs.json` crossed 1MB (JSON.parse on empty string → "Unexpected EOF", read silently failed while writes kept succeeding). `githubRead()`, `syncWithings()`, and `syncHealth()` now all route through a shared `githubDecodeContent(data)` helper: if `data.encoding === 'base64'` it decodes inline as before; otherwise it fetches the same file via the Git Blobs API (`/git/blobs/{sha}` with `Accept: application/vnd.github.v3.raw`), which supports up to 100MB. No action needed as data grows further — just be aware this is why the read path looks like two branches, not one.
+
+**Saving a new/updated GitHub token — `saveGithubToken()`:**
+Deliberately calls `syncToGitHub()` (merge+push), **not** `pullFromGitHub()` (destructive pull). This was a real bug: a device that had been offline (expired token) and had local-only logs would, on pasting a fresh token, immediately overwrite those local logs with GitHub's older copy via a plain pull. Fixed 29 Jul 2026 after it nearly cost the user several months of iPhone food logs. Do not revert this to a plain pull without re-solving that problem.
+
 ---
 
 ## AI food logging
 
 All logging methods go through a confirm-before-log flow — user always reviews before anything is saved.
 
-**Log tabs (Today page):** AI Text | Quick | 📷 AI | Scan | Manual
-
-1. **AI Text** — user types food in shorthand (e.g. `mango kulfi Asda`, `chicken selects x5 McDonalds`). Calls Claude via Cloudflare Worker `POST /` with web search enabled.
-2. **📷 AI** — photo with optional hint text. Calls Claude via Cloudflare Worker with web search enabled.
-3. **Scan** — barcode scanner + manual barcode entry. Queries Open Food Facts API (free, no key needed), good UK coverage.
-4. **Quick** — Favourites (starred) + Recent (14 days auto)
-5. **Manual** — name, calories, protein
+1. **Describe food** (text) — calls Claude via Cloudflare Worker `POST /`
+2. **Photo** — calls Claude via Cloudflare Worker with optional hint text
+3. **Barcode** — queries Open Food Facts API (free, no key needed), good UK coverage
+4. **Quick Log** — Favourites (starred) + Recent (14 days auto)
+5. **Manual Entry** — name, calories, protein
 
 **System prompts (UK-aware):**
-- Text (passed as `system` field): *"You are a precise UK nutrition analyst. The user is based in the UK. The user will describe food in shorthand — interpret it generously. A word at the end that looks like a brand, supermarket, or restaurant (e.g. Asda, Tesco, McDonald's, Pret, Greggs, Nando's, Wagamama) means the food is from that place. You have access to web search — use it to look up exact nutritional data whenever a specific restaurant, chain, or branded product is mentioned. Search for the official UK nutritional information and use those exact figures. For unbranded or home-cooked food, use accurate standard UK portion sizes. Extract ALL food items described and return ONLY a valid JSON array with no other text. Each item: {name, cals, prot}. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate."* User message is the raw food description text with no prefix.
-- Photo (passed as `system` field): *"You are a precise UK nutrition analyst. The user is based in the UK. You have access to web search — if you can identify a specific restaurant, chain, or branded product from the image or the user's hint, search for the official nutritional data and use those exact figures. For unbranded food, use accurate standard UK portion sizes. Identify all food items visible. Use plate size, hand size, cutlery, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Do not underestimate calories. For protein, use the actual value — do not overestimate."* User message contains only the image + hint text (or a plain fallback prompt if no hint provided).
+- Text: *"You are a precise UK nutrition analyst. The user is based in the UK. Use UK portion sizes and recognise UK brands and supermarket products. Extract ALL food items described and return ONLY a JSON array. Each item: {name, cals, prot}. Integers only. When uncertain about portion size, estimate conservatively."*
+- Photo: *"You are a UK nutrition analyst. Identify all food items visible. Use plate size, hand size, or any packaging as reference to estimate portions. Return ONLY a JSON array: [{name, cals, prot}]. Integers only. Be conservative when uncertain about portion size."* + optional user hint appended.
 
-**Important:** Both prompts use the API `system` field, not the user message. Never put instructions in the user turn. The user message for text logging is sent as-is (no "Food description:" prefix).
-
-**Web search:** The worker injects `web_search_20250305` into every `POST /` request and runs an agentic loop (up to 5 turns). Claude searches automatically when it recognises a named restaurant or brand. Adds ~2-3s latency for searches.
-
-Model: `claude-sonnet-4-20250514`
+Model: `claude-sonnet-4-6` — **updated 29 Jul 2026.** The previous model, `claude-sonnet-4-20250514`, was retired by Anthropic on 15 June 2026; requests to it returned an error response with no `content` field, which the app's parser silently treated as an unparseable AI reply ("Could not parse — try being more specific") on every single request, with no indication the real problem was the model ID. If AI logging fails identically on every input regardless of complexity, check whether the model string needs updating again before assuming it's a token/secret issue — Anthropic retires old dated model snapshots periodically. Current models as of this writing: Fable 5, Opus 4.8, Sonnet 4.6, Haiku 4.5.
 
 ---
 
@@ -161,14 +155,14 @@ Model: `claude-sonnet-4-20250514`
 
 Two routes, both protected by `X-Secret` header:
 
-**`POST /`** — AI proxy with web search agentic loop. Injects `web_search_20250305` tool, runs up to 5 turns until `stop_reason === 'end_turn'`, always returns `{ content: [{ type: 'text', text: '...' }] }` to the app. `max_tokens` set to 4000 to accommodate search results.
+**`POST /`** — AI proxy. Forwards request body to Anthropic API and returns response.
 
 **`POST /health`** — Apple Health ingestion. Receives JSON from Health Auto Export, parses steps and active energy (handles both kJ and kcal units), reads current `health.json` from GitHub, merges by date, writes back.
 
-Environment secrets required (set in Cloudflare dashboard):
-- `WORKER_SECRET` — validates incoming requests
-- `ANTHROPIC_API_KEY` — AI food analysis
-- `GITHUB_TOKEN` — used by /health route to read/write health.json
+Environment secrets required (set in Cloudflare dashboard → Workers & Pages → gains-tracker-proxy → Settings → Variables and Secrets):
+- `WORKER_SECRET` — validates incoming requests (does not expire)
+- `ANTHROPIC_API_KEY` — AI food analysis (does not expire unless manually rotated)
+- `GITHUB_TOKEN` — used by /health route to read/write health.json (**expires every 90 days — see Credentials section**)
 
 The complete current Worker code is in `worker.js`.
 
@@ -190,9 +184,20 @@ All secrets are stored outside the codebase. `index.html` and `worker.js` contai
 | Withings Client Secret | ~/.zshenv on Mac | Withings API auth |
 | GitHub PAT | ~/.zshenv on Mac | Withings script writes to gains-data |
 
-**GitHub PAT expires every 90 days.** User needs reminding to renew and paste into Goals tab. Worker secret does not expire.
+### ⚠️ GitHub PAT expires every 90 days — in THREE separate places
 
-Secrets are entered via the **Goals tab** — GitHub token card and Worker secret card. Both stored in browser localStorage only.
+This is the single biggest recurring failure mode for this app, and it caused a full day of debugging on 29 Jul 2026. **The same 90-day GitHub PAT is used in three independent locations, and renewing one does NOT renew the others:**
+
+1. **Browser localStorage** (`gh_token`) — set via the app's **Goals tab**, per device/browser. Each device (Mac Safari, iPhone Safari) has its own separate copy — updating it on the Mac does nothing for the iPhone.
+2. **`~/.zshenv` on Mac** (`GITHUB_TOKEN`) — used by the Withings cron script. Edit via `nano ~/.zshenv`.
+3. **Cloudflare Worker env secret** (`GITHUB_TOKEN`) — used by the `/health` route for Apple Health syncing. Edit via Cloudflare dashboard → Workers & Pages → gains-tracker-proxy → Settings → Variables and Secrets → Edit.
+
+**When the token expires, the symptoms differ depending on which of the three has gone stale**, and multiple can fail simultaneously without being obviously related:
+- Browser copy expired → app shows "Sync error", food logging stops syncing across devices
+- Mac `.zshenv` copy expired → `withings_sync.log` shows `HTTP Error 401: Unauthorized`, body data stops updating
+- Cloudflare copy expired → Apple Health steps/active calories silently stop appearing in Trends, with no visible error anywhere in the app (this one is easy to miss for a long time)
+
+**When renewing, generate ONE new classic PAT (repo scope, 90-day expiry) and paste it into all three locations in the same sitting**, rather than fixing them one at a time as symptoms surface.
 
 ---
 
@@ -237,6 +242,8 @@ export GITHUB_TOKEN="..."
 ```
 ln -s /opt/homebrew/etc/ca-certificates/cert.pem /opt/homebrew/etc/openssl@3/cert.pem
 ```
+
+**⚠️ macOS updates can silently break this job.** After a macOS update on 29 Jul 2026, `crontab -l` came back completely empty — the update had wiped the user's crontab entirely, and separately, Terminal needed to be re-granted **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access) before `crontab -e` would even work. Neither failure produced an obvious error until the log was checked — the job just silently stopped running. **After any macOS update, check `crontab -l` shows the job is still present** before assuming anything else is wrong.
 
 Check the log: `cat ~/withings_sync.log`
 
@@ -291,14 +298,13 @@ Linear-inspired design system:
 - **Background:** `#0a0a0a` (near-black, not pure black)
 - **Surface levels:** `#111111`, `#161616`, `#1c1c1c`, `#222222`
 - **Borders:** `0.5px solid rgba(255,255,255,0.06)` — hairlines
-- **Accent:** `#5e6ad2` (Linear's indigo) — CSS var `--accent`
+- **Accent:** `#5e6ad2` (Linear's indigo)
 - **Green:** `#4cc38a`, **Amber:** `#e5a50a`, **Red:** `#e5484d`
 - **Activity colours:** Steps `#f97316` (orange), Active kcal `#ec4899` (pink)
 - **Border radius:** 4px (sm), 6px (md), 8px (lg) — sharp not rounded
 - **Typography:** tight letter-spacing, uppercase tracking on labels, monospace for all numbers
 - **No shadows** — elevation via borders only
 - Chart colours must be hardcoded hex — Chart.js cannot read CSS variables
-- **Note:** `--accent2` is used in some inline styles but is not defined as a CSS variable — it resolves to nothing and is effectively transparent. Avoid using it; use hardcoded hex or `--accent` instead.
 
 ---
 
@@ -309,36 +315,37 @@ Linear-inspired design system:
 **Today page:**
 - Macro cards showing calories and protein vs goal with progress bars
 - Date navigator — arrows to step days, tap date to pick, "Today" pill when on past date
-- Logging tabs: AI Text | Quick | 📷 AI | Scan | Manual
-- Today's log list with edit (✎), star (favourite), and delete per entry — edit opens an inline row to change name, kcal, protein, or date; moving to a different date records the entry's `id` in `moves`
+- Logging tabs: Describe Food (AI text), Quick Log (favourites + recent), Photo, Barcode, Manual Entry
+- Today's log list with star (favourite) and delete per entry
 - Past dates can be logged retrospectively — all logging methods work on any selected date
 
 **Trends page:**
-- Logging streak card (above period selector) — counts consecutive days with at least one food entry, walking back from today. If today has no entries yet it is skipped without breaking the streak. Updates live when food is logged on the Today page (`renderStreak()` is called from `updateTodayDisplay()`). Subtitle adapts: "No streak yet", "Started today", or "X days in a row".
-- Period selector: 7d / 30d / 3m / 1y
 - 7-day summary table (always last 7 days, colour-coded vs goals)
-- 4 stat boxes: Avg daily calories, Avg daily protein, Avg active calories, Total steps (label reads "this week" on 7d, "this period" otherwise)
-- Chart 1 — Calories & Active kcal as ratio vs target (left axis, 1.0 = 100%), Steps absolute (right axis). Calories target = goal cals, active kcal target = 770. Axis ticks shown as percentages.
-- Chart 2 — Body composition: weight kg (left) + body fat % (right)
-- Chart 3 — Net calories vs Weight: 30-day rolling average of (calories consumed − active kcal burned) on left axis, weight kg on right. Calculated for every day in the period; body weight plotted only on weigh-in days (spanGaps bridges gaps). Requires 7+ days of overlapping food+activity data in each 30-day window to plot a net point.
-- Chart 4 — Net calories vs Body fat %: same net kcal line, body fat % on right axis
+- Period selector: 7d / 30d / 3m / 1y
+- Calories & Protein chart (dual axis)
+- Macro breakdown doughnut
+- Body composition chart (weight + body fat %)
+- Activity trend chart (steps + active kcal, dual axis)
 - Nutrition ↔ Body insights (recomp scoring)
 
 **Body page:** Withings auto-sync status, manual body measurement entry, measurement history
 
-**Goals page:** Calorie/protein targets, body goals, progress, GitHub token entry, Worker secret entry
+**Goals page:**
+- Calorie/protein targets, body goals, progress
+- **Backup your data** (added 29 Jul 2026) — one-tap export of full local state (logs, body, goals, favourites, health) as JSON to clipboard, for the user to paste into Notes as a safety copy before touching sync settings. Added after a near-miss where several months of iPhone-only food logs almost got overwritten by a destructive token-save pull (see Sync logic section above).
+- GitHub token entry, Worker secret entry
 
 ---
 
 ## Recomposition scoring (Trends page)
 
-User goal is body recomposition — lose fat while maintaining or gaining muscle. Requires **5+ days food data and 3+ body measurements** (the placeholder text in the HTML incorrectly says "2 weeks" — the actual threshold in code is 5 days / 3 measurements).
+User goal is body recomposition — lose fat while maintaining or gaining muscle. Requires 5+ days food data and 3+ body measurements.
 
-- **Recomp working** — fat dropping >0.3%, weight >= -0.5kg
-- **Cutting** — fat dropping, weight also dropping >0.5kg
-- **Bulking** — fat up >0.3%, weight up
-- **Maintaining** — fat change <=0.3%, weight change <=0.5kg
-- **Mixed signal** — anything else
+- **Recomp working** — fat dropping, weight stable or up
+- **Cutting** — fat and weight both dropping
+- **Bulking** — fat and weight both rising
+- **Maintaining** — minimal change in both
+- **Mixed signal** — unclear pattern
 
 ---
 
@@ -348,12 +355,12 @@ User goal is body recomposition — lose fat while maintaining or gaining muscle
 - **Confirm before logging** — no auto-logging, user always reviews AI estimates
 - **GitHub private repo for data** — `gains-data` is private; `gains-tracker` is public but contains zero personal data or secrets
 - **Cloudflare Worker for AI and health ingestion** — API keys cannot safely live in browser code
-- **GitHub is source of truth** — local storage is a cache only, pulled fresh on every load
+- **GitHub is source of truth** — local storage is a cache only, pulled fresh on every load (except immediately after a token save, which merges instead — see Sync logic)
 - **No OneDrive** — Azure app registration does not support personal Microsoft 365 accounts
 - **Open Food Facts for barcodes** — free, good UK coverage, no key required
 - **Safari 16.6 support** — hard constraint, drives all JS decisions in index.html
 - **Manual body entry still available** — Withings auto-sync is supplementary
-- **Date keys always use local date parts** — never `toISOString()` which returns UTC and causes date collisions around midnight for UK users
+- **Caching left as-is — no-cache fix built but NOT adopted** — after repeated instances of deployed fixes appearing not to work because Safari kept serving a stale cached copy, a fix was built (no-cache meta tags in `<head>`) that would make every load fetch the latest version automatically. On 29 Jul 2026 the user decided not to deploy it and to keep the page's caching behaviour as-is. **Do not re-propose or redeploy this fix unprompted** — the code is available in chat history if the user asks for it later. Because of this decision, every deploy still requires a manual `?v=N` cache-busting reload (see "How to make and deploy changes" below) — this is not a leftover step to be cleaned up, it's the current expected workflow.
 
 ---
 
@@ -363,7 +370,34 @@ User goal is body recomposition — lose fat while maintaining or gaining muscle
 - Withings cron requires Mac to be awake at 11:40pm
 - Health Auto Export background sync unreliable when iPhone is locked — open app to force sync
 - Barcode database gaps — Open Food Facts patchy for newer products; photo tab is the fallback
-- GitHub PAT expires every 90 days — user must renew manually in Goals tab
+- **GitHub PAT expires every 90 days, in three independent locations** — see Credentials section above for the full list and symptoms
+- **macOS updates can silently wipe the Withings cron job and revoke Full Disk Access** — check `crontab -l` after any macOS update
+- **Anthropic retires old dated model snapshots periodically** — if AI logging fails on every input with no useful error, check whether `claude-sonnet-4-6` (currently in use) has itself been superseded
+- **Page caching is left at default (by user choice)** — a no-cache fix exists but was not adopted; every deploy requires a manual `?v=N` cache-busting reload on each device, or a deployed fix will appear not to have worked
+
+---
+
+## Troubleshooting playbook
+
+Quick diagnostic order when something breaks, learned from a full debugging session on 29 Jul 2026 where multiple unrelated things had failed at once:
+
+1. **Check the sync status indicator** (top right of app) — "Sync error" points at the browser's GitHub token.
+2. **Test the GitHub token directly**, bypassing the app, via Safari's JS console (Develop menu → Show JavaScript Console):
+   ```
+   fetch('https://api.github.com/repos/jainomics/gains-data/contents/food_logs.json', {headers: {'Authorization': 'token ' + localStorage.getItem('gh_token'), 'Accept': 'application/vnd.github.v3+json'}, cache: 'no-store'}).then(function(r){return r.text()}).then(console.log)
+   ```
+   A 401 confirms an expired/wrong token in the browser specifically. A 200 with `"encoding": "none"` and empty `"content"` means the file has crossed 1MB (should be a non-issue after the `githubDecodeContent` fix, but useful to know the signature).
+3. **Test the AI Worker directly**, same console, to isolate AI logging failures from sync failures (they use completely different credentials):
+   ```
+   fetch('https://gains-tracker-proxy.jainomics.workers.dev', {method:'POST', headers:{'Content-Type':'application/json','X-Secret':localStorage.getItem('worker_secret')}, body: JSON.stringify({model:'claude-sonnet-4-6', max_tokens:50, messages:[{role:'user', content:'say hi'}]})}).then(function(r){console.log('STATUS:', r.status); return r.text()}).then(function(t){console.log(t)})
+   ```
+   Status 200 with real text back = Worker secret and Anthropic key both fine. A response with no `content` field usually means a retired/invalid model ID.
+4. **Check what model the currently-loaded page is actually calling** (rules out stale cache serving old code):
+   ```
+   document.querySelector('script:not([src])').textContent.match(/model:\s*'([^']+)'/g)
+   ```
+5. **Withings script:** run manually to see live errors before waiting for cron: `source ~/.zshenv && /usr/bin/python3 ~/scripts/withings_sync.py`, then `crontab -l` to confirm the job is still scheduled.
+6. **After every deploy, always reload with a new `?v=N` suffix before judging whether a fix worked.** The page does not skip caching (a fix for this exists but the user chose not to adopt it — see "Deliberate decisions"), so a plain reload will very likely still serve the old cached version and make a working fix look broken. This is a required step, not a fallback. Harmless — origin-scoped localStorage is untouched by query strings.
 
 ---
 
@@ -372,19 +406,10 @@ User goal is body recomposition — lose fat while maintaining or gaining muscle
 1. Get the latest `index.html` from the user or this conversation
 2. Make edits
 3. Run the Safari 16.6 JS check (see constraints section)
-3b. Run `node --check` on the extracted JS to catch syntax errors the linter won't catch (broken string concatenation, mismatched quotes, etc.) — a syntax error silently breaks the entire app:
-```python
-with open('index.html', 'r') as f:
-    html = f.read()
-js = html[html.index('<script>') + len('<script>'):html.index('</script>')]
-with open('/tmp/check.js', 'w') as f:
-    f.write(js)
-# then: node --check /tmp/check.js
-```
 4. Deliver the updated `index.html`
 5. User uploads to `github.com/jainomics/gains-tracker` replacing existing `index.html`
 6. Wait ~60 seconds for GitHub Pages to deploy
-7. Hard refresh: Cmd+Shift+R on Mac, close/reopen tab on iPhone
+7. **Reload with a fresh cache-busting suffix — required every time**, e.g. `https://jainomics.github.io/gains-tracker/?v=N` (bump N higher than any previously used). The page does not skip caching (see "Deliberate decisions"), so a plain reload will very likely still serve the old version. Do this on every device that needs the update — Mac and iPhone each cache independently.
 
 To test locally before uploading:
 ```
@@ -399,5 +424,7 @@ For Worker changes: edit in Cloudflare dashboard → Deploy. No file to upload.
 ## Ideas for future development
 
 - Better AI accuracy — meal context, confidence flagging
+- Streak tracking and habit data
 - Improved mobile UX — bottom tab bar native feel
 - Making the app a product (aspirational, not immediate)
+- Consider an in-app reminder/banner when the GitHub PAT is approaching 90 days old, rather than relying on the user to remember — the multi-location expiry (browser + Mac + Cloudflare) has now caused a full day of debugging once
