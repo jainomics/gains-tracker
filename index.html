@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gains Tracker</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js"></script>
@@ -965,23 +968,43 @@ function syncToGitHub() {
     // before overwriting — so we don't clobber food logged on the other device
     if (remote && remote.data) {
       var rd = remote.data;
-      // Merge food logs: union per day, local deletions win
+      // Merge food logs: union per day, local deletions win.
+      // Counts occurrences of each name|cals key on each side and keeps the
+      // larger count — a plain "seen it once, skip the rest" set would wrongly
+      // collapse genuine repeats (e.g. logging the same favourite twice in a
+      // day) into a single entry whenever a merge ran.
       var k;
       for (k in rd.logs) {
         var deletedCount = (state.deletions && state.deletions[k]) ? state.deletions[k] : 0;
         if (deletedCount > 0) continue; // local deleted — don't restore
         var localDay = state.logs[k] || [];
         var remoteDay = rd.logs[k] || [];
-        var seen = {};
-        var ei;
-        var combined = [];
+        var localCounts = {}, localItemsByKey = {};
+        var remoteCounts = {}, remoteItemsByKey = {};
+        var ei, mk;
         for (ei = 0; ei < localDay.length; ei++) {
-          var lk = localDay[ei].name + '|' + localDay[ei].cals;
-          if (!seen[lk]) { seen[lk] = true; combined.push(localDay[ei]); }
+          mk = localDay[ei].name + '|' + localDay[ei].cals;
+          localCounts[mk] = (localCounts[mk] || 0) + 1;
+          if (!localItemsByKey[mk]) localItemsByKey[mk] = [];
+          localItemsByKey[mk].push(localDay[ei]);
         }
         for (ei = 0; ei < remoteDay.length; ei++) {
-          var rk2 = remoteDay[ei].name + '|' + remoteDay[ei].cals;
-          if (!seen[rk2]) { seen[rk2] = true; combined.push(remoteDay[ei]); }
+          mk = remoteDay[ei].name + '|' + remoteDay[ei].cals;
+          remoteCounts[mk] = (remoteCounts[mk] || 0) + 1;
+          if (!remoteItemsByKey[mk]) remoteItemsByKey[mk] = [];
+          remoteItemsByKey[mk].push(remoteDay[ei]);
+        }
+        var allKeys = {};
+        for (mk in localCounts) allKeys[mk] = true;
+        for (mk in remoteCounts) allKeys[mk] = true;
+        var combined = [];
+        for (mk in allKeys) {
+          var wantCount = Math.max(localCounts[mk] || 0, remoteCounts[mk] || 0);
+          var have = 0, si;
+          var srcLocal = localItemsByKey[mk] || [];
+          var srcRemote = remoteItemsByKey[mk] || [];
+          for (si = 0; si < srcLocal.length && have < wantCount; si++) { combined.push(srcLocal[si]); have++; }
+          for (si = 0; si < srcRemote.length && have < wantCount; si++) { combined.push(srcRemote[si]); have++; }
         }
         state.logs[k] = combined;
       }
@@ -1071,7 +1094,21 @@ function save() {
 function load() { loadLocal(); }
 
 // ============ UTILS ============
-function today() { return new Date().toISOString().split('T')[0]; }
+// Formats a Date as YYYY-MM-DD using its LOCAL year/month/day — not
+// toISOString(), which converts to UTC first. During British Summer Time
+// (UTC+1), a UTC conversion of local midnight lands in the previous UTC
+// day, silently shifting date-navigation and day-list calculations back
+// by a day. Use this anywhere a calendar date needs to come from a Date
+// object.
+function localDateStr(d) {
+  var y = d.getFullYear();
+  var m = d.getMonth() + 1;
+  var day = d.getDate();
+  var mm = (m < 10 ? '0' : '') + m;
+  var dd = (day < 10 ? '0' : '') + day;
+  return y + '-' + mm + '-' + dd;
+}
+function today() { return localDateStr(new Date()); }
 function fmt(n) { return Math.round(n).toLocaleString(); }
 
 function toast(msg, dur) {
@@ -1482,7 +1519,7 @@ function getDaysData(n) {
   for (i = n - 1; i >= 0; i--) {
     var d = new Date();
     d.setDate(d.getDate() - i);
-    var key = d.toISOString().split('T')[0];
+    var key = localDateStr(d);
     var logs = state.logs[key] || [];
     var cals = 0, prot = 0, j;
     for (j = 0; j < logs.length; j++) { cals += (logs[j].cals || 0); prot += (logs[j].prot || 0); }
@@ -1591,7 +1628,7 @@ function renderSummaryTable() {
   for (i = 0; i < 7; i++) {
     var d = new Date();
     d.setDate(d.getDate() - i);
-    var key = d.toISOString().split('T')[0];
+    var key = localDateStr(d);
     var logs = state.logs[key] || [];
     var cals = 0, prot = 0, j;
     for (j = 0; j < logs.length; j++) { cals += (logs[j].cals || 0); prot += (logs[j].prot || 0); }
@@ -2108,7 +2145,7 @@ function shiftDate(delta) {
   var parts = d.split('-');
   var dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   dateObj.setDate(dateObj.getDate() + delta);
-  var shifted = dateObj.toISOString().split('T')[0];
+  var shifted = localDateStr(dateObj);
   // Don't allow navigating into the future
   if (shifted > today()) return;
   setViewDate(shifted);
