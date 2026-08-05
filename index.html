@@ -199,6 +199,12 @@
   .log-item-cals { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text2); white-space: nowrap; }
   .log-item-del { background: none; border: none; color: var(--text4); cursor: pointer; font-size: 14px; padding: 4px; border-radius: var(--r-sm); transition: color 0.1s; line-height: 1; }
   .log-item-del:hover { color: var(--red); }
+  .log-item-edit { background: none; border: none; color: var(--text4); cursor: pointer; font-size: 13px; padding: 4px; border-radius: var(--r-sm); transition: color 0.1s; line-height: 1; }
+  .log-item-edit:hover { color: var(--accent); }
+  .edit-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 0.5px solid var(--border); flex-wrap: wrap; }
+  .edit-row:last-child { border-bottom: none; }
+  .edit-name-input { flex: 1; min-width: 120px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--r-sm); padding: 6px 8px; color: var(--text); font-family: var(--sans); font-size: 13px; outline: none; }
+  .edit-num-input { width: 64px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--r-sm); padding: 6px 8px; color: var(--text); font-family: var(--mono); font-size: 12px; text-align: center; outline: none; }
   .log-empty { text-align: center; padding: 32px 20px; color: var(--text4); font-size: 13px; }
   .log-time { font-size: 10px; color: var(--text4); font-family: var(--mono); }
 
@@ -413,11 +419,11 @@
 
   <div class="log-area">
     <div class="log-tabs">
-      <div class="log-tab active" onclick="switchLogTab('text')">✏️ Describe Food</div>
-      <div class="log-tab" onclick="switchLogTab('recent')">&#9733; Quick Log</div>
-      <div class="log-tab" onclick="switchLogTab('photo')">📷 Photo</div>
-      <div class="log-tab" onclick="switchLogTab('barcode')">&#x25A6; Barcode</div>
-      <div class="log-tab" onclick="switchLogTab('manual')">🔢 Manual Entry</div>
+      <div class="log-tab active" onclick="switchLogTab('text')">AI Text</div>
+      <div class="log-tab" onclick="switchLogTab('recent')">Quick</div>
+      <div class="log-tab" onclick="switchLogTab('photo')">📷 AI</div>
+      <div class="log-tab" onclick="switchLogTab('barcode')">Scan</div>
+      <div class="log-tab" onclick="switchLogTab('manual')">Manual</div>
     </div>
     <div class="log-content">
       <!-- RECENT TAB -->
@@ -513,6 +519,18 @@
 
 <!-- TRENDS -->
 <div class="page" id="page-trends">
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div class="section-title" style="margin-top:0;margin-bottom:4px">Logging streak</div>
+        <div style="font-size:12px;color:var(--text3)" id="streak-subtitle">Days in a row with a food entry</div>
+      </div>
+      <div style="text-align:right">
+        <div id="streak-val" style="font-family:var(--mono);font-size:40px;font-weight:500;color:var(--accent);line-height:1">—</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">day streak 🔥</div>
+      </div>
+    </div>
+  </div>
   <div class="trend-controls">
     <button class="period-btn active" onclick="setPeriod(7,this)">7 days</button>
     <button class="period-btn" onclick="setPeriod(30,this)">30 days</button>
@@ -726,6 +744,7 @@ var state = {
   deletions: {},  // tracks intentional deletes: {date: count}
   favourites: [],   // [{name, cals, prot}]
   favouriteRemovals: {},  // {name: true} — names explicitly unfavourited on this device
+  moves: {},  // {id: true} — entry ids that have been moved to a different date; blocks resurrection on merge
   health: []  // [{date, steps, activeCals}] from Apple Health via Shortcut
 };
 var trendChart = null, bodyChart = null, pieChart = null, healthChart = null;
@@ -762,6 +781,7 @@ function loadLocal() {
       if (p.deletions) state.deletions = p.deletions;
       if (p.favourites) state.favourites = p.favourites;
       if (p.favouriteRemovals) state.favouriteRemovals = p.favouriteRemovals;
+      if (p.moves) state.moves = p.moves;
       if (p.health) state.health = p.health;
     } catch(e) {}
   } else if (old) {
@@ -909,6 +929,7 @@ function pullFromGitHub() {
     if (d.goals) state.goals = d.goals;
     if (d.favourites) state.favourites = d.favourites;
     if (d.favouriteRemovals) state.favouriteRemovals = d.favouriteRemovals;
+    if (d.moves) state.moves = d.moves;
     if (d.deletions) state.deletions = d.deletions;
     saveLocal();
     updateTodayDisplay();
@@ -969,35 +990,63 @@ function syncToGitHub() {
     if (remote && remote.data) {
       var rd = remote.data;
       // Merge food logs: union per day, local deletions win.
-      // Counts occurrences of each name|cals key on each side and keeps the
-      // larger count — a plain "seen it once, skip the rest" set would wrongly
-      // collapse genuine repeats (e.g. logging the same favourite twice in a
-      // day) into a single entry whenever a merge ran.
+      // Entries with a stable id (assigned on creation) are matched by that
+      // id — this is what lets an edited/moved entry be recognised as the
+      // same entry across devices instead of a duplicate, and lets `moves`
+      // block a moved entry from resurrecting on its old date. Older entries
+      // that predate id-tagging fall back to matching by name|cals, counting
+      // occurrences on each side and keeping the larger count — a plain
+      // "seen it once, skip the rest" set would wrongly collapse genuine
+      // repeats (e.g. logging the same favourite twice in a day) into a
+      // single entry whenever a merge ran.
       var k;
       for (k in rd.logs) {
         var deletedCount = (state.deletions && state.deletions[k]) ? state.deletions[k] : 0;
         if (deletedCount > 0) continue; // local deleted — don't restore
         var localDay = state.logs[k] || [];
         var remoteDay = rd.logs[k] || [];
-        var localCounts = {}, localItemsByKey = {};
-        var remoteCounts = {}, remoteItemsByKey = {};
+        var combined = [];
         var ei, mk;
+
+        // --- entries with a stable id: merge by identity ---
+        var idMap = {};
+        var localNoId = [], remoteNoId = [];
         for (ei = 0; ei < localDay.length; ei++) {
-          mk = localDay[ei].name + '|' + localDay[ei].cals;
-          localCounts[mk] = (localCounts[mk] || 0) + 1;
-          if (!localItemsByKey[mk]) localItemsByKey[mk] = [];
-          localItemsByKey[mk].push(localDay[ei]);
+          var lentry = localDay[ei];
+          if (lentry.id) idMap[lentry.id] = lentry; // local copy wins if both sides have it
+          else localNoId.push(lentry);
         }
         for (ei = 0; ei < remoteDay.length; ei++) {
-          mk = remoteDay[ei].name + '|' + remoteDay[ei].cals;
+          var rentry = remoteDay[ei];
+          if (rentry.id) {
+            // Skip if this entry was moved away from this date on the local device
+            if (state.moves && state.moves[rentry.id]) continue;
+            if (!idMap[rentry.id]) idMap[rentry.id] = rentry;
+          } else {
+            remoteNoId.push(rentry);
+          }
+        }
+        var idKey;
+        for (idKey in idMap) combined.push(idMap[idKey]);
+
+        // --- legacy entries with no id: union by name|cals, keeping the larger count ---
+        var localCounts = {}, localItemsByKey = {};
+        var remoteCounts = {}, remoteItemsByKey = {};
+        for (ei = 0; ei < localNoId.length; ei++) {
+          mk = localNoId[ei].name + '|' + localNoId[ei].cals;
+          localCounts[mk] = (localCounts[mk] || 0) + 1;
+          if (!localItemsByKey[mk]) localItemsByKey[mk] = [];
+          localItemsByKey[mk].push(localNoId[ei]);
+        }
+        for (ei = 0; ei < remoteNoId.length; ei++) {
+          mk = remoteNoId[ei].name + '|' + remoteNoId[ei].cals;
           remoteCounts[mk] = (remoteCounts[mk] || 0) + 1;
           if (!remoteItemsByKey[mk]) remoteItemsByKey[mk] = [];
-          remoteItemsByKey[mk].push(remoteDay[ei]);
+          remoteItemsByKey[mk].push(remoteNoId[ei]);
         }
         var allKeys = {};
         for (mk in localCounts) allKeys[mk] = true;
         for (mk in remoteCounts) allKeys[mk] = true;
-        var combined = [];
         for (mk in allKeys) {
           var wantCount = Math.max(localCounts[mk] || 0, remoteCounts[mk] || 0);
           var have = 0, si;
@@ -1058,7 +1107,8 @@ function syncToGitHub() {
       goals: state.goals,
       deletions: state.deletions || {},
       favourites: state.favourites || [],
-      favouriteRemovals: state.favouriteRemovals || {}
+      favouriteRemovals: state.favouriteRemovals || {},
+      moves: state.moves || {}
     };
     return githubWrite(payload, sha);
   }).then(function(ok) {
@@ -1149,6 +1199,7 @@ function updateTodayDisplay() {
   document.getElementById('bar-prot').style.width = protPct + '%';
   renderTodayLog();
   updateDateNav();
+  renderStreak();
 }
 
 function renderTodayLog() {
@@ -1171,6 +1222,7 @@ function renderTodayLog() {
       '<div class="log-time">' + (l.time || '') + '</div>' +
       '</div>' +
       '<div class="log-item-cals">' + fmt(l.cals) + ' kcal</div>' +
+      '<button class="log-item-edit" onclick="editEntry(\'' + d + '\',' + i + ')" title="Edit">&#9998;</button>' +
       '<button class="log-item-star' + starred + '" onclick="toggleFavourite(\'' + d + '\',' + i + ',this)" title="Favourite">&#9733;</button>' +
       '<button class="log-item-del" onclick="deleteEntry(\'' + d + '\',' + i + ')" title="Delete">&#10005;</button>' +
       '</div>';
@@ -1189,6 +1241,79 @@ function deleteEntry(date, idx) {
   syncToGitHub();
 }
 
+function editEntry(date, idx) {
+  var el = document.getElementById('today-log-list');
+  var items = el.querySelectorAll('.log-item');
+  if (idx >= items.length) return;
+  var l = state.logs[date][idx];
+  var row = items[idx];
+  row.innerHTML =
+    '<div class="edit-row">' +
+    '<input class="edit-name-input" id="edit-name-' + idx + '" type="text" value="' + l.name.replace(/"/g, '&quot;') + '">' +
+    '<input class="edit-num-input" id="edit-cals-' + idx + '" type="number" value="' + (l.cals || 0) + '" placeholder="kcal">' +
+    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">KCAL</span>' +
+    '<input class="edit-num-input" id="edit-prot-' + idx + '" type="number" value="' + (l.prot || 0) + '" placeholder="prot">' +
+    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">PROT</span>' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:8px;padding:6px 0 10px 0">' +
+    '<span style="font-size:10px;color:var(--text4);letter-spacing:0.04em">DATE</span>' +
+    '<input class="edit-num-input" id="edit-date-' + idx + '" type="date" value="' + date + '" max="' + today() + '" style="width:auto;flex:1">' +
+    '<button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="saveEdit(\'' + date + '\',' + idx + ')">Save</button>' +
+    '<button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="updateTodayDisplay()">Cancel</button>' +
+    '</div>';
+  document.getElementById('edit-name-' + idx).focus();
+}
+
+function saveEdit(date, idx) {
+  var nameEl = document.getElementById('edit-name-' + idx);
+  var calsEl = document.getElementById('edit-cals-' + idx);
+  var protEl = document.getElementById('edit-prot-' + idx);
+  var dateEl = document.getElementById('edit-date-' + idx);
+  if (!nameEl || !calsEl || !protEl || !dateEl) return;
+  var name = nameEl.value.trim();
+  var cals = parseInt(calsEl.value) || 0;
+  var prot = parseInt(protEl.value) || 0;
+  var newDate = dateEl.value;
+  if (!name) { nameEl.focus(); return; }
+  if (!newDate) { newDate = date; }
+  // Pull the entry out of the old date
+  var entry = state.logs[date][idx];
+  entry.name = name;
+  entry.cals = cals;
+  entry.prot = prot;
+  if (newDate !== date) {
+    // Moving to a different date — splice quietly (no deletions counter)
+    // Record the id in moves so it can't resurrect on the old date during merge
+    if (entry.id) {
+      if (!state.moves) state.moves = {};
+      state.moves[entry.id] = true;
+    }
+    state.logs[date].splice(idx, 1);
+    if (!state.logs[date].length) delete state.logs[date];
+    if (!state.logs[newDate]) state.logs[newDate] = [];
+    // Clear time when moving to a past date, keep if moving to today
+    if (newDate !== today()) entry.time = '';
+    state.logs[newDate].push(entry);
+    save();
+    updateTodayDisplay();
+    toast('Moved to ' + newDate);
+  } else {
+    state.logs[date][idx] = entry;
+    save();
+    updateTodayDisplay();
+    toast('Updated: ' + name);
+  }
+}
+
+function makeEntryId() {
+  var chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  var id = '';
+  for (var ci = 0; ci < 8; ci++) {
+    id += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return id;
+}
+
 function addEntry(entry) {
   var d = viewDate || today();
   if (!state.logs[d]) state.logs[d] = [];
@@ -1199,6 +1324,7 @@ function addEntry(entry) {
   } else {
     entry.time = '';
   }
+  entry.id = makeEntryId();
   state.logs[d].push(entry);
   save();
   updateTodayDisplay();
@@ -1504,6 +1630,43 @@ function saveGoals() {
 }
 
 // ============ TRENDS ============
+function calcStreak() {
+  var streak = 0;
+  var d = new Date();
+  var i;
+  // Start from today and walk backwards — stop at the first day with no food entry
+  // (today counts if there is at least one entry, even if the day isn't over)
+  for (i = 0; i < 730; i++) {
+    var key = localDateStr(d);
+    var logs = state.logs[key] || [];
+    if (logs.length > 0) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    } else {
+      // If today has no entries yet, don't break the streak — just don't count it
+      if (i === 0) {
+        d.setDate(d.getDate() - 1);
+        continue;
+      }
+      break;
+    }
+  }
+  return streak;
+}
+
+function renderStreak() {
+  var el = document.getElementById('streak-val');
+  var sub = document.getElementById('streak-subtitle');
+  if (!el) return;
+  var streak = calcStreak();
+  el.textContent = streak > 0 ? streak : '0';
+  if (sub) {
+    if (streak === 0) sub.textContent = 'No streak yet — log today to start one';
+    else if (streak === 1) sub.textContent = 'Started today — keep it going!';
+    else sub.textContent = streak + ' days in a row with a food entry';
+  }
+}
+
 function setPeriod(days, btn) {
   currentPeriod = days;
   var btns = document.querySelectorAll('.period-btn');
@@ -1609,6 +1772,7 @@ function renderTrends() {
     });
   }
 
+  renderStreak();
   renderCorrelations(logged, bodyInRange);
   renderHealthChart();
   renderSummaryTable();
